@@ -1,0 +1,4 @@
+# Local development only (not published): use the sibling package.
+dependency_overrides:
+  steady_chat_list_core:
+    path: ../steady_chat_list_core

@@ -1,0 +1,24 @@
+name: steady_chat_list
+description: >-
+  A Telegram-grade chat message list: opens at the right place, pages
+  unlimited history with a fixed number of widgets, and never jumps.
+version: 0.1.0-dev.1
+topics:
+  - chat
+  - list
+  - scroll
+  - pagination
+
+environment:
+  sdk: ^3.5.0
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  steady_chat_list_core: ^0.1.0-dev.1
+
+dev_dependencies:
+  flutter_lints: ">=4.0.0 <7.0.0"
+  flutter_test:
+    sdk: flutter
