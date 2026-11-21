@@ -443,21 +443,21 @@ packages:
       path: "../packages/steady_chat_list"
       relative: true
     source: path
-    version: "0.1.0-dev.9"
+    version: "0.1.0"
   steady_chat_list_core:
     dependency: "direct overridden"
     description:
       path: "../packages/steady_chat_list_core"
       relative: true
     source: path
-    version: "0.1.0-dev.9"
+    version: "0.1.0"
   steady_chat_list_drift:
     dependency: "direct main"
     description:
       path: "../packages/steady_chat_list_drift"
       relative: true
     source: path
-    version: "0.1.0-dev.9"
+    version: "0.1.0"
   stream_channel:
     dependency: transitive
     description:

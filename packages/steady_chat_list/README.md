@@ -2,11 +2,17 @@
 
 A Flutter package that gives any chat app a steady message list: it opens at the right place, pages unlimited history with a fixed number of widgets, and never jumps under the reader's eyes.
 
-**Status: pre-release** (`0.1.0-dev`, not on pub.dev yet). Everything described here is implemented and tested; the API may still change before 1.0. The [example app](https://github.com/vfiruz97/steady_chat_list/tree/main/example) shows every feature, and the design decisions are in [DECISIONS.md](https://github.com/vfiruz97/steady_chat_list/blob/main/DECISIONS.md).
+**Status: `0.1.0`**, the first release. Everything described here is implemented and tested; the API may still change before 1.0. The [example app](https://github.com/vfiruz97/steady_chat_list/tree/main/example) shows every feature, and the design decisions are in [DECISIONS.md](https://github.com/vfiruz97/steady_chat_list/blob/main/DECISIONS.md).
 
 It is made for conversations: chats, group chats, threads and comments, support chat inside any app, AI assistant chats, activity feeds. For product grids or settings lists use a plain `ListView`.
 
 ## Quick start
+
+Add the package:
+
+```sh
+flutter pub add steady_chat_list
+```
 
 Tell the list how to read your message class, then pick where the messages come from.
 
