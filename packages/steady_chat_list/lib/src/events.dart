@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:steady_chat_list_core/steady_chat_list_core.dart';
 
+import 'jump.dart';
+
 /// What the list as a whole is doing.
 ///
 /// ```dart
@@ -357,6 +359,25 @@ final class SnapshotSaved extends MessageListEvent {
   final SaveReason reason;
 }
 
+/// A step of a jump. Callback: `onJump`.
+final class Jumped extends MessageListEvent {
+  /// Creates the event.
+  const Jumped(super.list, this.jump);
+
+  /// The step.
+  final JumpEvent jump;
+}
+
+/// The pinned message for the current scroll position changed. Callback:
+/// `onCurrentPinnedChanged`.
+final class CurrentPinnedChanged extends MessageListEvent {
+  /// Creates the event.
+  const CurrentPinnedChanged(super.list, this.key);
+
+  /// The pinned message to show in the bar, if any.
+  final MessageKey? key;
+}
+
 /// A diagnostic was reported. Callback: `onDiagnostic`.
 final class DiagnosticReported extends MessageListEvent {
   /// Creates the event.
@@ -391,6 +412,8 @@ class MessageListCallbacks<M> {
     this.onPageError,
     this.onOpened,
     this.onAtBottomChanged,
+    this.onJump,
+    this.onCurrentPinnedChanged,
     this.onDiagnostic,
   });
 
@@ -438,6 +461,13 @@ class MessageListCallbacks<M> {
 
   /// The list reached or left the bottom.
   final void Function(ListId list, bool atBottom)? onAtBottomChanged;
+
+  /// A step of a jump: started, loading, scrolling, arrived (with the
+  /// item's rectangle), highlightEnded, cancelled or failed.
+  final void Function(ListId list, JumpEvent event)? onJump;
+
+  /// The pinned message for the current scroll position changed.
+  final void Function(ListId list, MessageKey? key)? onCurrentPinnedChanged;
 
   /// A diagnostic was reported.
   final void Function(MessageListDiagnostic diagnostic)? onDiagnostic;

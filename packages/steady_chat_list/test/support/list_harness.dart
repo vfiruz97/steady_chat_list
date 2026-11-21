@@ -39,6 +39,15 @@ class ListHarness {
   /// How often each item was built.
   final Map<String, int> builds = {};
 
+  /// The latest info each item was built with.
+  final Map<String, MessageItemInfo> infos = {};
+
+  /// Whether day headers (24 px) are shown.
+  bool dayHeaders = false;
+
+  /// Wraps items in the default jump flash.
+  bool flash = false;
+
   /// Width-dependent heights (text reflow): height = area / width.
   double? area;
 
@@ -70,14 +79,25 @@ class ListHarness {
               controller: controller,
               itemBuilder: (context, message, info) {
                 builds[message.id] = (builds[message.id] ?? 0) + 1;
-                return LayoutBuilder(
+                infos[message.id] = info;
+                final item = LayoutBuilder(
                   key: ValueKey('item-${message.id}'),
                   builder: (context, constraints) => SizedBox(
                     height: heights[message.id] ??
                         (area == null ? 50 : area! / constraints.maxWidth),
                   ),
                 );
+                return flash
+                    ? JumpHighlightBackground(info: info, child: item)
+                    : item;
               },
+              dayHeaderBuilder: dayHeaders
+                  ? (context, day, onTap) => SizedBox(
+                        key:
+                            ValueKey('day-${day.year}-${day.month}-${day.day}'),
+                        height: 24,
+                      )
+                  : null,
               unreadDividerBuilder: (context) =>
                   const SizedBox(key: ValueKey('divider'), height: 30),
               footerBuilder: (context) =>

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Rect;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
@@ -7,6 +8,8 @@ import 'package:steady_chat_list_core/steady_chat_list_core.dart';
 import 'config.dart';
 import 'events.dart';
 import 'item_info.dart';
+import 'jump.dart';
+import 'search.dart';
 import 'viewport.dart';
 
 /// Runs [callback] once, at the start of the next frame.
@@ -126,6 +129,21 @@ class MessageListController<M> extends ChangeNotifier {
   // Per-item change notifiers (one bubble rebuilds, not the list).
   final Map<String, _ItemNotifier> _items = {};
 
+  // Jumps.
+  MessageListViewport? _viewport;
+  int _jumpId = 0;
+  CancellationToken? _jumpToken;
+  Future<void>? _jumpFlight;
+  Timer? _highlightTimer;
+  int _highlightSerial = 0;
+  final List<MessageSearchNavigator<M>> _searches = [];
+  final ValueNotifier<JumpState?> _jumpState = ValueNotifier(null);
+  final ValueNotifier<HighlightState?> _highlighted = ValueNotifier(null);
+  final ValueNotifier<String?> _highlightQuery = ValueNotifier(null);
+  final ValueNotifier<int> _unreadMentions = ValueNotifier(0);
+  final ValueNotifier<int> _unreadReactions = ValueNotifier(0);
+  final ValueNotifier<MessageKey?> _currentPinned = ValueNotifier(null);
+
   // Events.
   final StreamController<MessageListEvent> _events =
       StreamController<MessageListEvent>.broadcast();
@@ -228,6 +246,43 @@ class MessageListController<M> extends ChangeNotifier {
   void reportDiagnostic(MessageListDiagnostic diagnostic) =>
       _diagnose(diagnostic);
 
+  /// The jump that is running, if any.
+  ValueListenable<JumpState?> get jumpInProgress => _jumpState;
+
+  /// The item that is flashed after a jump, if any.
+  ValueListenable<HighlightState?> get highlighted => _highlighted;
+
+  /// The search term items should mark, set by a jump with
+  /// `JumpOptions.highlightQuery` (search navigation).
+  ValueListenable<String?> get highlightQuery => _highlightQuery;
+
+  /// Unread messages that mention the user.
+  ValueListenable<int> get unreadMentionsCount => _unreadMentions;
+
+  /// Own messages with unread reactions.
+  ValueListenable<int> get unreadReactionsCount => _unreadReactions;
+
+  /// The pinned message that belongs to the current scroll position: the
+  /// newest pinned message at or before the top of the viewport (§10.10).
+  ValueListenable<MessageKey?> get currentPinned => _currentPinned;
+
+  /// The item's rectangle in global coordinates, or null when it is not
+  /// built. For overlays: reaction effects, context menus, tooltips.
+  ///
+  /// ```dart
+  /// final rect = controller.rectOf(message.key);
+  /// ```
+  Rect? rectOf(MessageKey key) => _viewport?.rectOf(key);
+
+  /// Connects the view that shows this controller's window. The built-in
+  /// view does this itself.
+  void attachViewport(MessageListViewport viewport) => _viewport = viewport;
+
+  /// Disconnects [viewport] if it is the attached one.
+  void detachViewport(MessageListViewport viewport) {
+    if (identical(_viewport, viewport)) _viewport = null;
+  }
+
   /// The message with the id of [key] in the list that is on screen.
   ///
   /// ```dart
@@ -266,6 +321,14 @@ class MessageListController<M> extends ChangeNotifier {
     OpenTarget target = const OpenTarget.auto(),
   }) {
     if (_disposed) return Future.value(OpenResolution.bottom);
+    if (list == _list && target is OpenAtMessage && _keys.isNotEmpty) {
+      // A link to a message of the chat that is already open: jump in
+      // place, never reopen (§10.1).
+      return jumpTo(
+        target.key,
+        options: config.jump.copyWith(reason: JumpReason.deepLink),
+      ).then((_) => OpenResolution.target);
+    }
     if (list != _list) {
       _saveNow(SaveReason.chatSwitch);
       _detach();
@@ -311,6 +374,11 @@ class MessageListController<M> extends ChangeNotifier {
     _saveNow(SaveReason.dispose);
     _disposed = true;
     _token.cancel();
+    _cancelJump();
+    _highlightTimer?.cancel();
+    for (final search in List.of(_searches)) {
+      search.dispose();
+    }
     _detach();
     _queue.clear();
     unawaited(_events.close());
@@ -324,10 +392,579 @@ class MessageListController<M> extends ChangeNotifier {
       _olderEdge,
       _newerEdge,
       _readOutbox,
+      _jumpState,
+      _highlighted,
+      _highlightQuery,
+      _unreadMentions,
+      _unreadReactions,
+      _currentPinned,
     ]) {
       notifier.dispose();
     }
     super.dispose();
+  }
+
+  // ----------------------------------------------------- navigation (§10.4)
+
+  /// Jumps to a message: a search result, a reply, a link. The target ends
+  /// at `options.alignment` and is flashed. If it is not loaded, one page
+  /// around it is fetched and the window is swapped; the list never scrolls
+  /// through the gap. A deleted target lands on the nearest message.
+  ///
+  /// A new jump, a user scroll, a chat switch or dispose cancels it.
+  ///
+  /// ```dart
+  /// final result = await controller.jumpTo(reply.targetKey,
+  ///     options: const JumpOptions(reason: JumpReason.reply));
+  /// ```
+  Future<JumpResult> jumpTo(MessageKey key, {JumpOptions? options}) =>
+      _jump(key: key, options: options ?? config.jump);
+
+  /// Jumps to the newest message. Across a gap of any size this is at most
+  /// one fetch and at most one viewport of animation.
+  ///
+  /// ```dart
+  /// onPressed: controller.jumpToBottom,
+  /// ```
+  Future<JumpResult> jumpToBottom({JumpScroll? scroll}) => _jump(
+        bottom: true,
+        options: JumpOptions(
+          scroll: scroll ?? config.jump.scroll,
+          highlight: const JumpHighlight.none(),
+          reason: JumpReason.bottom,
+        ),
+      );
+
+  /// Jumps to the first message on or after local midnight of [day]; its
+  /// day header ends at the top.
+  ///
+  /// ```dart
+  /// final day = await showDatePicker(...);
+  /// if (day != null) controller.jumpToDate(day);
+  /// ```
+  Future<JumpResult> jumpToDate(DateTime day, {JumpOptions? options}) => _jump(
+        date: DateTime(day.year, day.month, day.day),
+        options: options ??
+            JumpOptions(
+              alignment: const JumpAlignment.top(),
+              scroll: config.jump.scroll,
+              highlight: const JumpHighlight.none(),
+              reason: JumpReason.date,
+            ),
+      );
+
+  /// Jumps to the oldest unread mention after the top of the viewport (or
+  /// the oldest of all) and takes it off the unread list on arrival.
+  ///
+  /// ```dart
+  /// onPressed: controller.jumpToNextUnreadMention,
+  /// ```
+  Future<JumpResult> jumpToNextUnreadMention() =>
+      _jumpToUnread(JumpReason.mention);
+
+  /// Jumps to the oldest unread reaction, like [jumpToNextUnreadMention].
+  Future<JumpResult> jumpToNextUnreadReaction() =>
+      _jumpToUnread(JumpReason.reaction);
+
+  /// Jumps to a pinned message and puts it [barHeight] px below the top,
+  /// so the pinned bar doesn't cover it.
+  ///
+  /// ```dart
+  /// onTap: () => controller.jumpToPinned(pinned, barHeight: 48),
+  /// ```
+  Future<JumpResult> jumpToPinned(MessageKey key, {double barHeight = 0}) =>
+      _jump(
+        key: key,
+        options: config.jump.copyWith(
+          alignment: JumpAlignment.top(inset: barHeight),
+          reason: JumpReason.pinned,
+        ),
+      );
+
+  /// The user selected the chat that is already open. What happens is set
+  /// by `config.reselectBehavior`; the default jumps to the bottom.
+  ///
+  /// ```dart
+  /// onTap: () => chat.id == open.id ? controller.reselect() : openChat(chat),
+  /// ```
+  void reselect() {
+    switch (config.reselectBehavior) {
+      case ReselectBehavior.none:
+        return;
+      case ReselectBehavior.jumpToBottom:
+        unawaited(
+          _jump(
+            bottom: true,
+            options: JumpOptions(
+              scroll: config.jump.scroll,
+              highlight: const JumpHighlight.none(),
+              reason: JumpReason.reselect,
+            ),
+          ),
+        );
+      case ReselectBehavior.scrollToTopOfWindow:
+        if (_keys.isEmpty) return;
+        unawaited(
+          _jump(
+            key: _keys.first,
+            options: JumpOptions(
+              alignment: const JumpAlignment.top(),
+              scroll: config.jump.scroll,
+              highlight: const JumpHighlight.none(),
+              reason: JumpReason.reselect,
+            ),
+          ),
+        );
+    }
+  }
+
+  /// Starts search navigation over [source]: set a query, then step through
+  /// the results with `next()` and `previous()` (§10.5).
+  ///
+  /// ```dart
+  /// final search = controller.search(MySearchSource(api))..setQuery('invoice');
+  /// await search.next(); // jumps to the newest hit
+  /// ```
+  MessageSearchNavigator<M> search(MessageSearchSource source) {
+    final navigator = MessageSearchNavigator<M>(
+      controller: this,
+      source: source,
+      onDispose: _searches.remove,
+    );
+    _searches.add(navigator);
+    return navigator;
+  }
+
+  /// Stops marking the search term in items. The position is kept.
+  void clearHighlightQuery() => _highlightQuery.value = null;
+
+  /// Loads the page around [key] in the background if it is not in memory,
+  /// so a later jump to it is instant. Search navigation uses this for the
+  /// neighbours of the current result.
+  ///
+  /// ```dart
+  /// controller.prefetchAround(nextResult);
+  /// ```
+  Future<void> prefetchAround(MessageKey key) async {
+    final store = _store;
+    if (_disposed || store == null || store.segmentOf(key) != null) return;
+    await _fetchQuietly(
+      _generation,
+      PageDirection.around,
+      key,
+      _windowPolicy.pageSize,
+    );
+  }
+
+  void _cancelJump() {
+    _jumpId++;
+    _jumpToken?.cancel();
+    _jumpToken = null;
+    _jumpState.value = null;
+  }
+
+  /// The message at the top of the viewport (the first built one before
+  /// the view reported).
+  MessageKey? _anchorKey() {
+    final items = _metrics?.items;
+    if (items != null && items.isNotEmpty) return items.first.key;
+    return _keys.isEmpty ? null : _keys.first;
+  }
+
+  List<MessageKey> _around(ListStore<M> store, MessageKey key) {
+    final half = _windowPolicy.windowSize ~/ 2;
+    return store.keysAround(
+      key,
+      before: half,
+      after: _windowPolicy.windowSize - half - 1,
+    );
+  }
+
+  /// Whether enough messages are loaded on both sides of [key] to align it
+  /// anywhere in the viewport: a quarter page each way, or the real start
+  /// or end of the list. With [inWindow] the window is checked instead of
+  /// the whole segment.
+  bool _roomAround(
+    ListStore<M> store,
+    MessageKey key, {
+    required bool inWindow,
+  }) {
+    final segment = store.segmentOf(key);
+    if (segment == null) return false;
+    final margin = _windowPolicy.pageSize ~/ 2 - 5;
+    final int before;
+    final int after;
+    if (inWindow) {
+      final index = _keys.indexOf(key);
+      before = index;
+      after = _keys.length - 1 - index;
+    } else {
+      before = store.keysBefore(key, margin).length;
+      after = store.keysAfter(key, margin).length;
+    }
+    final first = inWindow ? _keys.first : segment.first;
+    final last = inWindow ? _keys.last : segment.last;
+    final atStart = segment.reachedOldest &&
+        (before < margin) &&
+        first.isSamePosition(segment.first);
+    final atEnd = segment.reachedNewest &&
+        (after < margin) &&
+        last.isSamePosition(segment.last);
+    return (before >= margin || atStart) && (after >= margin || atEnd);
+  }
+
+  /// Where a jump to [key] can land with what is in memory: the message
+  /// itself, or its nearest neighbour in the travel direction when it was
+  /// deleted. Null when that part of the history is not loaded.
+  MessageKey? _locate(
+    ListStore<M> store,
+    MessageKey key, {
+    bool fetched = false,
+  }) {
+    final exact = store.keyOf(key.id);
+    if (exact != null && store.segmentOf(exact) != null) return exact;
+    final from = _anchorKey();
+    final older = from != null && key < from;
+    final segment = store.segmentOf(key);
+    if (segment != null) {
+      // Deleted, inside loaded history: the neighbour in travel direction.
+      return store.nearestExisting(
+        key,
+        older ? ScanDirection.older : ScanDirection.newer,
+      );
+    }
+    if (!fetched) return null;
+    // Deleted at the very start or end of what the server returned around
+    // it: the closest message there is.
+    for (final direction in [ScanDirection.newer, ScanDirection.older]) {
+      final near = store.nearestExisting(key, direction);
+      if (near != null && store.segmentOf(near) != null) return near;
+    }
+    return null;
+  }
+
+  /// The first loaded message on or after [date], when the messages right
+  /// before it are loaded too (so it really is the first of that moment).
+  MessageKey? _locateDate(
+    ListStore<M> store,
+    DateTime date, {
+    required bool fetched,
+  }) {
+    final candidate = store.firstOnOrAfter(date);
+    if (candidate == null) {
+      // Later than everything: the newest message, once that page is here.
+      final newest = store.liveSegment?.last;
+      return fetched ? newest : null;
+    }
+    final segment = store.segmentOf(candidate);
+    if (segment == null) return null;
+    if (fetched || store.keysBefore(candidate, 1).isNotEmpty) return candidate;
+    return segment.reachedOldest ? candidate : null;
+  }
+
+  Future<JumpResult> _jumpToUnread(JumpReason reason) async {
+    final store = _store;
+    final from = _anchorKey();
+    final mention = reason == JumpReason.mention;
+    MessageKey? next(MessageKey? after) => mention
+        ? store?.nextUnreadMention(after)
+        : store?.nextUnreadReaction(after);
+    final key = next(from) ?? next(null);
+    if (store == null || key == null) {
+      return JumpResult(
+        outcome: JumpOutcome.failed,
+        took: Duration.zero,
+        error: StateError('Nothing unread to jump to'),
+      );
+    }
+    final result = await _jump(
+      key: key,
+      options: config.jump.copyWith(reason: reason),
+    );
+    if (result.succeeded && identical(store, _store)) {
+      // Seen: off the unread list, the counter follows.
+      final state = store.readState;
+      hub.apply(
+        ReadStateChanged<M>(
+          _list,
+          ReadState(
+            lastReadInbox: state.lastReadInbox,
+            lastReadOutbox: state.lastReadOutbox,
+            unreadCount: state.unreadCount,
+            unreadMentions: [
+              for (final k in state.unreadMentions)
+                if (!mention || k != key) k,
+            ],
+            unreadReactions: [
+              for (final k in state.unreadReactions)
+                if (mention || k != key) k,
+            ],
+          ),
+        ),
+      );
+    }
+    return result;
+  }
+
+  Future<JumpResult> _jump({
+    MessageKey? key,
+    DateTime? date,
+    bool bottom = false,
+    required JumpOptions options,
+  }) async {
+    final store = _store;
+    final watch = Stopwatch()..start();
+    final reason = options.reason;
+    if (_disposed || store == null || !identical(store, _shownStore)) {
+      return JumpResult(
+        outcome: JumpOutcome.failed,
+        took: Duration.zero,
+        error: StateError('The list is not open'),
+      );
+    }
+    final id = ++_jumpId;
+    _jumpToken?.cancel();
+    final token = _jumpToken = CancellationToken();
+    var fetched = 0;
+    bool superseded() => _disposed || id != _jumpId;
+
+    JumpResult end(JumpOutcome outcome, {MessageKey? landedOn, Object? error}) {
+      if (id == _jumpId) _jumpState.value = null;
+      final result = JumpResult(
+        outcome: outcome,
+        took: watch.elapsed,
+        landedOn: landedOn,
+        fetchedPages: fetched,
+        error: error,
+      );
+      if (outcome == JumpOutcome.cancelled) {
+        _emit(Jumped(_list, JumpCancelled(reason, key)));
+      } else if (outcome == JumpOutcome.failed) {
+        _emit(Jumped(_list, JumpFailed(reason, key, error ?? 'unknown')));
+      } else {
+        _emit(
+          Jumped(
+            _list,
+            JumpArrived(
+              reason,
+              key,
+              result,
+              landedOn == null ? null : _viewport?.rectOf(landedOn),
+            ),
+          ),
+        );
+      }
+      return result;
+    }
+
+    /// One page for this jump. Jump fetches run one at a time; a jump that
+    /// was superseded while it waited never sends its request.
+    Future<bool> load(
+      PageDirection direction, {
+      MessageKey? anchor,
+      DateTime? anchorDate,
+      required int limit,
+    }) async {
+      final indicator = Timer(config.loadingIndicatorDelay, () {
+        if (superseded()) return;
+        _jumpState.value =
+            JumpState(reason: reason, target: key, isLoading: true);
+        _emit(Jumped(_list, JumpLoading(reason, key)));
+      });
+      try {
+        while (_jumpFlight != null) {
+          await _jumpFlight;
+          if (superseded()) return false;
+        }
+        final request = PageRequest(
+          list: _list,
+          direction: direction,
+          anchor: anchor,
+          anchorDate: anchorDate,
+          limit: limit,
+          generation: _generation,
+          cancel: token,
+        );
+        _emit(PageRequested(_list, request));
+        final future = hub.fetch(request);
+        final flight = future.then<void>((_) {}, onError: (Object _) {});
+        _jumpFlight = flight;
+        unawaited(
+          flight.whenComplete(() {
+            if (identical(_jumpFlight, flight)) _jumpFlight = null;
+          }),
+        );
+        fetched++;
+        try {
+          final outcome = await future;
+          if (!outcome.applied || superseded()) return false;
+          _emit(
+            PageLoaded(
+              _list,
+              request,
+              outcome.result,
+              outcome.origin,
+              outcome.duration,
+            ),
+          );
+          return true;
+        } catch (error, stackTrace) {
+          if (!superseded()) {
+            _emit(PageFailed(_list, request, error, stackTrace));
+          }
+          rethrow;
+        }
+      } finally {
+        indicator.cancel();
+        if (!superseded() && (_jumpState.value?.isLoading ?? false)) {
+          _jumpState.value = JumpState(reason: reason, target: key);
+        }
+      }
+    }
+
+    _jumpState.value = JumpState(reason: reason, target: key);
+    _emit(Jumped(_list, JumpStarted(reason, key)));
+    final query = options.highlightQuery;
+    if (query != null) _highlightQuery.value = query;
+
+    try {
+      if (bottom) {
+        if (!_endsAtNewest || _keys.isEmpty) {
+          if (store.liveSegment == null && !store.isKnownEmpty) {
+            final loaded = await load(
+              PageDirection.latest,
+              limit: _windowPolicy.firstOpenPageSize,
+            );
+            if (!loaded) return end(JumpOutcome.cancelled);
+          }
+          _newGeneration();
+          _dividerKey = null;
+          _showBottom(
+            store,
+            scroll: _viewport == null ? null : options.scroll,
+          );
+        }
+        _emit(Jumped(_list, JumpScrolling(reason, key)));
+        final view = _viewport;
+        final arrived =
+            view == null || await view.scrollToBottom(options.scroll);
+        if (superseded() || !arrived) return end(JumpOutcome.cancelled);
+        return end(
+          JumpOutcome.arrived,
+          landedOn: _keys.isEmpty ? null : _keys.last,
+        );
+      }
+
+      MessageKey? find({required bool fetched}) => key != null
+          ? _locate(store, key, fetched: fetched)
+          : _locateDate(store, date!, fetched: fetched);
+      var located = find(fetched: false);
+      if (located == null || !_roomAround(store, located, inWindow: false)) {
+        // Not loaded, or loaded without enough messages around it to put
+        // it where the alignment wants it.
+        final loaded = await load(
+          PageDirection.around,
+          anchor: key ?? located,
+          anchorDate: key == null && located == null ? date : null,
+          limit: _windowPolicy.pageSize,
+        );
+        if (!loaded) return end(JumpOutcome.cancelled);
+        located = find(fetched: true) ?? located;
+      }
+      if (located == null) {
+        return end(
+          JumpOutcome.failed,
+          error: StateError('The message was not found'),
+        );
+      }
+      final exact = key == null || located.id == key.id;
+      final inWindow = _keys.contains(located) &&
+          _roomAround(store, located, inWindow: true);
+      if (inWindow &&
+          options.alignment.keepsVisibleItem &&
+          _isFullyVisible(located)) {
+        // Nothing to scroll: flash only.
+        if (exact) _flash(located, options);
+        return end(JumpOutcome.alreadyVisible, landedOn: located);
+      }
+      final viewport = _viewport;
+      if (!inWindow || !(viewport?.isBuilt(located) ?? true)) {
+        // Swap the window in one frame; the view starts at most one
+        // viewport away on the side it comes from and animates the rest.
+        final from = _anchorKey();
+        _newGeneration();
+        _show(
+          store,
+          _around(store, located),
+          PlaceJump(
+            located,
+            options.alignment,
+            fromNewer: from != null && located < from,
+            scroll: options.scroll,
+          ),
+        );
+      }
+      _emit(Jumped(_list, JumpScrolling(reason, key)));
+      final arrived = viewport == null ||
+          await viewport.scrollToItem(
+            located,
+            options.alignment,
+            options.scroll,
+          );
+      if (superseded() || !arrived) return end(JumpOutcome.cancelled);
+      if (exact) _flash(located, options);
+      return end(
+        exact ? JumpOutcome.arrived : JumpOutcome.arrivedNearest,
+        landedOn: located,
+      );
+    } catch (error) {
+      if (superseded()) return end(JumpOutcome.cancelled);
+      return end(JumpOutcome.failed, error: error);
+    }
+  }
+
+  bool _isFullyVisible(MessageKey key) {
+    final items = _metrics?.items ?? const <VisibleItem>[];
+    for (final item in items) {
+      if (item.key == key) return item.visibleFraction >= 0.999;
+    }
+    return false;
+  }
+
+  void _flash(MessageKey key, JumpOptions options) {
+    final highlight = options.highlight;
+    if (!highlight.isEnabled) return;
+    final serial = ++_highlightSerial;
+    final reason = options.reason;
+    _highlighted.value = HighlightState(
+      key: key,
+      reason: reason,
+      highlight: highlight,
+      serial: serial,
+    );
+    _highlightTimer?.cancel();
+    _highlightTimer = Timer(highlight.delay + highlight.duration, () {
+      if (_disposed || serial != _highlightSerial) return;
+      _highlighted.value = null;
+      _emit(Jumped(_list, JumpHighlightEnded(reason, key)));
+    });
+  }
+
+  void _updateNavigationState() {
+    final store = _store;
+    if (store == null) return;
+    final state = store.readState;
+    _unreadMentions.value = state.unreadMentions.length;
+    _unreadReactions.value = state.unreadReactions.length;
+    final anchor = _anchorKey();
+    final policy = policies.pinned ?? PinnedPolicy<M>();
+    final pinned = anchor == null || !identical(store, _shownStore)
+        ? null
+        : policy.currentPinned(store, anchor);
+    if (_currentPinned.value != pinned) {
+      _currentPinned.value = pinned;
+      _emit(CurrentPinnedChanged(_list, pinned));
+    }
   }
 
   // ------------------------------------------------- imperative API (§13.5)
@@ -386,6 +1023,7 @@ class MessageListController<M> extends ChangeNotifier {
     _metricsStale = false;
     _updateBottomState();
     _trackRead(metrics);
+    _updateNavigationState();
     _persistTimer?.cancel();
     _persistTimer = Timer(
       config.persistDebounce,
@@ -437,6 +1075,7 @@ class MessageListController<M> extends ChangeNotifier {
 
   Future<OpenResolution> _open(OpenTarget target) async {
     if (_disposed) return OpenResolution.bottom;
+    _cancelJump();
     final generation = _newGeneration();
     _attach();
     final store = _store!;
@@ -496,12 +1135,7 @@ class MessageListController<M> extends ChangeNotifier {
     OpenPlan withoutSnapshots() => policies.open.decide(
           OpenContext(target: target, readState: store.readState),
         );
-    final half = _windowPolicy.windowSize ~/ 2;
-    List<MessageKey> around(MessageKey key) => store.keysAround(
-          key,
-          before: half,
-          after: _windowPolicy.windowSize - half - 1,
-        );
+    List<MessageKey> around(MessageKey key) => _around(store, key);
 
     var triedUnread = false;
     var fetchedLatest = false;
@@ -654,6 +1288,7 @@ class MessageListController<M> extends ChangeNotifier {
   }
 
   void _opened(OpenResolution resolution) {
+    _updateNavigationState();
     _liveLastSeen = _store?.liveSegment?.last;
     _readOutbox.value = _store?.readState.lastReadOutbox;
     _recomputeUnread();
@@ -705,7 +1340,7 @@ class MessageListController<M> extends ChangeNotifier {
     }
   }
 
-  void _showBottom(ListStore<M> store) {
+  void _showBottom(ListStore<M> store, {JumpScroll? scroll}) {
     final live = store.liveSegment;
     _show(
       store,
@@ -715,7 +1350,7 @@ class MessageListController<M> extends ChangeNotifier {
               ...store.keysBefore(live.last, _windowPolicy.windowSize - 1),
               live.last,
             ],
-      const PlaceBottom(),
+      PlaceBottom(scroll: scroll),
     );
   }
 
@@ -908,6 +1543,7 @@ class MessageListController<M> extends ChangeNotifier {
     _readOutbox.value = store.readState.lastReadOutbox;
     _recomputeWindow(store, replaced);
     _recomputeUnread();
+    _updateNavigationState();
     _maybePage();
   }
 
@@ -1447,6 +2083,12 @@ class MessageListController<M> extends ChangeNotifier {
       case AtBottomChanged(:final list, :final atBottom):
         final f = c.onAtBottomChanged;
         if (f != null) _guard('onAtBottomChanged', () => f(list, atBottom));
+      case Jumped(:final list, :final jump):
+        final f = c.onJump;
+        if (f != null) _guard('onJump', () => f(list, jump));
+      case CurrentPinnedChanged(:final list, :final key):
+        final f = c.onCurrentPinnedChanged;
+        if (f != null) _guard('onCurrentPinnedChanged', () => f(list, key));
       case DiagnosticReported(:final diagnostic):
         final f = c.onDiagnostic;
         if (f != null) {

@@ -2,6 +2,28 @@
 
 All packages in this repository share one version.
 
+## 0.1.0-dev.5 — milestone 4: jumps and search
+
+### steady_chat_list
+
+- `jumpTo`, `jumpToBottom`, `jumpToDate`, `jumpToNextUnreadMention`, `jumpToNextUnreadReaction`, `jumpToPinned`, `reselect`.
+  - Any distance: one fetch at most, the window is swapped in one frame, at most one viewport is animated, never a blank frame.
+  - `JumpOptions`: alignment (center, top, bottom, fraction, minimal), scroll (animated or instant), highlight, reason.
+  - A deleted target lands on the nearest message; a drag, a new jump, a chat switch or dispose cancels.
+  - `onJump` / `Jumped` events: started, loading, scrolling, arrived (with the item rectangle), highlightEnded, cancelled, failed.
+- Highlight: `MessageItemInfo.highlight` (1 → 0), `highlightQuery`, `highlightReason`; `JumpHighlightBackground`.
+- `MessageSearchNavigator` (`controller.search`): debounced query, next / previous / goTo, result paging, neighbour prefetch.
+- `currentPinned`, `unreadMentionsCount`, `unreadReactionsCount`, `jumpInProgress`, `highlighted`, `rectOf`, `prefetchAround`.
+- `MessageListViewport` for custom views.
+
+### steady_chat_list_core
+
+- `JumpAlignment`, `JumpReason`, `JumpOutcome`, `JumpResult`.
+
+### Tests
+
+- Acceptance tests 10–17. 122 tests in `steady_chat_list` (99.9% lines), 103 in the core (100%).
+
 ## 0.1.0-dev.4 — simple API
 
 ### steady_chat_list

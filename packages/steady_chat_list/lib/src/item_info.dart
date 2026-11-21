@@ -43,6 +43,9 @@ class MessageItemInfo {
     this.isLocal = false,
     this.sendState = SendState.none,
     this.isRead = false,
+    this.highlight,
+    this.highlightQuery,
+    this.highlightReason,
     this.indexInWindow = 0,
   });
 
@@ -70,6 +73,16 @@ class MessageItemInfo {
   /// Whether the peer has read this outgoing message.
   final bool isRead;
 
+  /// Goes from 1 to 0 after a jump landed on this message; null otherwise.
+  /// Draw the flash with it (see `JumpHighlightBackground`).
+  final Animation<double>? highlight;
+
+  /// The search term to mark in the text, while search navigation is on.
+  final String? highlightQuery;
+
+  /// Why the jump that flashes this message happened.
+  final JumpReason? highlightReason;
+
   /// Position in the window (debug only).
   final int indexInWindow;
 
@@ -84,7 +97,10 @@ class MessageItemInfo {
       other.isFirstUnread == isFirstUnread &&
       other.isLocal == isLocal &&
       other.sendState == sendState &&
-      other.isRead == isRead;
+      other.isRead == isRead &&
+      identical(other.highlight, highlight) &&
+      other.highlightQuery == highlightQuery &&
+      other.highlightReason == highlightReason;
 
   @override
   int get hashCode => Object.hash(
@@ -96,6 +112,8 @@ class MessageItemInfo {
         isLocal,
         sendState,
         isRead,
+        highlightQuery,
+        highlightReason,
       );
 }
 

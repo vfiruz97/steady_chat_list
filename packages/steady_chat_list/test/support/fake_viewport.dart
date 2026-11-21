@@ -7,7 +7,7 @@ import 'package:steady_chat_list/steady_chat_list.dart';
 /// boxes, applies placements, keeps the first visible item still when the
 /// window changes (as the real view must), and reports metrics after the
 /// "frame" (a microtask).
-class FakeViewport<M> {
+class FakeViewport<M> implements MessageListViewport {
   FakeViewport(
     this.controller, {
     this.height = 600,
@@ -16,6 +16,7 @@ class FakeViewport<M> {
     this.dividerHeight = 30,
   }) : _window = controller.window.value {
     controller.window.addListener(_windowChanged);
+    controller.attachViewport(this);
     _windowChanged();
   }
 
@@ -71,9 +72,58 @@ class FakeViewport<M> {
 
   void scrollToTop() => scrollBy(-top);
 
-  void scrollToBottom() => scrollBy(_maxTop - top);
+  void dragToBottom() => scrollBy(_maxTop - top);
 
-  void dispose() => controller.window.removeListener(_windowChanged);
+  void dispose() {
+    controller.window.removeListener(_windowChanged);
+    controller.detachViewport(this);
+  }
+
+  /// When false, the next scroll request reports "interrupted".
+  bool completeJumps = true;
+
+  /// Scroll requests received, for assertions.
+  final List<String> scrolls = [];
+
+  double _aligned(MessageKey key, JumpAlignment alignment) => alignment.resolve(
+        itemOffset: _y[key.id] ?? 0,
+        itemExtent: heights[key.id] ?? itemHeight,
+        viewport: height,
+        current: top,
+      );
+
+  @override
+  bool isBuilt(MessageKey key) => _y.containsKey(key.id);
+
+  @override
+  Rect? rectOf(MessageKey key) {
+    final y = yOf(key);
+    return y == null
+        ? null
+        : Rect.fromLTWH(0, y, width, heights[key.id] ?? itemHeight);
+  }
+
+  @override
+  Future<bool> scrollToItem(
+    MessageKey key,
+    JumpAlignment alignment,
+    JumpScroll scroll,
+  ) async {
+    scrolls.add('item ${key.order}');
+    if (!completeJumps) return false;
+    top = _aligned(key, alignment).clamp(0, _maxTop);
+    _scheduleReport();
+    return true;
+  }
+
+  @override
+  Future<bool> scrollToBottom(JumpScroll scroll) async {
+    scrolls.add('bottom');
+    if (!completeJumps) return false;
+    top = _maxTop;
+    _scheduleReport();
+    return true;
+  }
 
   void _layout() {
     layouts++;
@@ -105,6 +155,8 @@ class FakeViewport<M> {
           top = (_y[key.id] ?? 0) - offset;
         case PlaceBottom():
           top = _maxTop;
+        case PlaceJump(:final key, :final alignment):
+          top = _aligned(key, alignment);
         case PlaceUnread(:final key, :final topInset):
           top = (_dividerY ?? _y[key.id] ?? 0) - topInset;
       }

@@ -1,5 +1,17 @@
 import 'package:flutter/widgets.dart';
 
+/// Returns the scroll offset a placement wants, given the scroll range and
+/// the viewport height after the content was laid out.
+///
+/// ```dart
+/// position.placeWith((min, max, viewport) => max); // the bottom
+/// ```
+typedef PlacementResolver = double Function(
+  double min,
+  double max,
+  double viewport,
+);
+
 /// What an [AnchoredScrollPosition] needs to know about the content. The
 /// message list view implements it.
 ///
@@ -32,6 +44,10 @@ abstract interface class AnchoredScrollHost {
   /// The viewport corrected the offset by [correction] on its own (a sliver
   /// asked for it): the anchor is expected to have moved by the same amount.
   void shiftAnchor(double correction);
+
+  /// Whether a jump animation owns the position: the anchor is then left
+  /// alone and the jump retargets instead.
+  bool get isJumping;
 
   /// A layout was accepted at the position's current pixels. [corrected]
   /// is how far the offset was moved to keep the anchor still.
@@ -77,7 +93,7 @@ class AnchoredScrollPosition extends ScrollPositionWithSingleContext {
   static const double _epsilon = 0.01;
   static const int _maxPasses = 8;
 
-  ({bool bottom, double offset})? _pending;
+  ({PlacementResolver resolve, bool bottom})? _pending;
   bool _pinned = false;
   double _bottomGap = 0;
   bool _ownCorrection = false;
@@ -91,20 +107,24 @@ class AnchoredScrollPosition extends ScrollPositionWithSingleContext {
   /// Whether a finger is dragging the list.
   bool get isDragging => activity is DragScrollActivity;
 
-  /// Puts the content before the next paint: the end of the content at the
-  /// bottom of the viewport, or the start of the center sliver [offset] px
-  /// below the top of the viewport.
-  ///
-  /// ```dart
-  /// position.place(bottom: true);
-  /// ```
-  void place({required bool bottom, double offset = 0}) {
+  /// Whether a placement is waiting for the next layout.
+  bool get hasPendingPlacement => _pending != null;
+
+  /// Puts the content where [resolve] says, before the next paint.
+  /// [resolve] runs after the content was laid out (possibly several times
+  /// in one frame, until the offset is stable). [guess] is the offset for
+  /// the first pass; [bottom] marks a placement at the end of the content.
+  void placeWith(
+    PlacementResolver resolve, {
+    double? guess,
+    bool bottom = false,
+  }) {
     if (activity is! IdleScrollActivity) goIdle();
-    _pending = (bottom: bottom, offset: offset);
+    _pending = (resolve: resolve, bottom: bottom);
     _pinned = bottom;
     _bottomGap = 0;
     correctPixels(
-      bottom ? (hasViewportDimension ? -viewportDimension : 0) : -offset,
+      guess ?? (bottom && hasViewportDimension ? -viewportDimension : 0),
     );
   }
 
@@ -146,7 +166,7 @@ class AnchoredScrollPosition extends ScrollPositionWithSingleContext {
     final pending = _pending;
     double? target;
     if (pending != null) {
-      target = pending.bottom ? hi : (-pending.offset).clamp(lo, hi);
+      target = pending.resolve(lo, hi, viewportDimension);
     } else if (_pinned && host.shouldStick(userDragging: isDragging)) {
       // Pinning wins over the anchor: keep the distance to the bottom
       // (zero when exactly at the bottom) while content or the viewport
@@ -155,7 +175,7 @@ class AnchoredScrollPosition extends ScrollPositionWithSingleContext {
       final gap =
           _bottomGap < 0 && activity is IdleScrollActivity ? 0.0 : _bottomGap;
       target = hi - gap;
-    } else {
+    } else if (!host.isJumping) {
       final delta = host.takeAnchorDelta();
       if (delta.abs() > _epsilon) target = pixels + delta;
     }

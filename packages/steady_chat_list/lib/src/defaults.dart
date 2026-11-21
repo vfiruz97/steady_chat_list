@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 
+import 'item_info.dart';
+
 /// A small spinning arc in the current text color. Used by the default
 /// loading and edge rows; it needs no Material or Cupertino ancestor.
 ///
@@ -149,6 +151,48 @@ class DefaultErrorState extends StatelessWidget {
             ? Center(child: label)
             : Center(heightFactor: 1, child: label),
       ),
+    );
+  }
+}
+
+/// Flashes a message after a jump landed on it, like Telegram: a tinted
+/// background that fades out. Wrap the bubble (or the whole row) with it.
+///
+/// ```dart
+/// itemBuilder: (context, message, info) => JumpHighlightBackground(
+///   info: info,
+///   child: MessageBubble(message),
+/// ),
+/// ```
+class JumpHighlightBackground extends StatelessWidget {
+  /// Creates the background.
+  const JumpHighlightBackground({
+    super.key,
+    required this.info,
+    required this.child,
+    this.color = const Color(0x403390EC),
+  });
+
+  /// The item info given to the item builder.
+  final MessageItemInfo info;
+
+  /// The message.
+  final Widget child;
+
+  /// The tint at full strength.
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final highlight = info.highlight;
+    if (highlight == null) return child;
+    return AnimatedBuilder(
+      animation: highlight,
+      builder: (context, child) => ColoredBox(
+        color: Color.lerp(color.withAlpha(0), color, highlight.value)!,
+        child: child,
+      ),
+      child: child,
     );
   }
 }

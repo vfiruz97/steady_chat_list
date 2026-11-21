@@ -342,7 +342,7 @@ void main() {
           // …and back down, from memory.
           env.server.requests.clear();
           for (var i = 0; i < 20; i++) {
-            view.scrollToBottom();
+            view.dragToBottom();
             env.settle(const Duration(milliseconds: 100));
             expect(view.keys.length, lessThanOrEqualTo(80));
           }
@@ -485,7 +485,7 @@ void main() {
         expect(controller.isAtBottom.value, isFalse);
         view
           ..dragging = true
-          ..scrollToBottom();
+          ..dragToBottom();
         env.settle(Duration.zero);
         expect(controller.isAtBottom.value, isFalse);
         view

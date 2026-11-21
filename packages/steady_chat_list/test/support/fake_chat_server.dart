@@ -94,6 +94,10 @@ class FakeChatServer implements MessageSource<Msg> {
   int subscriptions = 0;
 
   final List<PageRequest> requests = [];
+
+  /// Fetches running right now, and the most that ever ran at once.
+  int inFlight = 0;
+  int maxInFlight = 0;
   final List<MessageKey> readReceipts = [];
   final Set<int> deleted = {};
   final List<Msg> arrived = [];
@@ -154,12 +158,26 @@ class FakeChatServer implements MessageSource<Msg> {
   @override
   Future<PageResult<Msg>> fetch(PageRequest request) async {
     requests.add(request);
-    await Future<void>.delayed(latency);
+    inFlight++;
+    if (inFlight > maxInFlight) maxInFlight = inFlight;
+    try {
+      await Future<void>.delayed(latency);
+    } finally {
+      inFlight--;
+    }
     if (failNextFetches > 0) {
       failNextFetches--;
       throw StateError('offline');
     }
-    final anchor = request.anchor?.order;
+    var anchor = request.anchor?.order;
+    final date = request.anchorDate;
+    if (anchor == null && date != null) {
+      // Messages are one minute per order apart: the first one at or after
+      // the date.
+      final minutes = (date.millisecondsSinceEpoch / 60000).ceil();
+      anchor = ((minutes + step - 1) ~/ step) * step;
+      if (anchor > newest) anchor = newest;
+    }
     switch (request.direction) {
       case PageDirection.latest:
         final page = _walk(newest + 1, request.limit, _previous);
@@ -227,5 +245,49 @@ class FakeChatServer implements MessageSource<Msg> {
     arrived.add(message);
     push(MessagesAdded(list, [message]));
     return message;
+  }
+}
+
+/// Search over the generated messages: every [every]-th message matches,
+/// newest first, in pages of `limit`.
+class FakeSearch implements MessageSearchSource {
+  FakeSearch(this.server, {this.every = 80, this.withTotal = true});
+
+  final FakeChatServer server;
+  final int every;
+  final bool withTotal;
+  Duration latency = const Duration(milliseconds: 100);
+  int failNext = 0;
+  final List<String> queries = [];
+  final List<String?> cursors = [];
+
+  int get matches => server.count ~/ every;
+
+  @override
+  Future<SearchPage> search(
+    ListId list,
+    String query, {
+    String? cursor,
+    int limit = 50,
+  }) async {
+    queries.add(query);
+    cursors.add(cursor);
+    await Future<void>.delayed(latency);
+    if (failNext > 0) {
+      failNext--;
+      throw StateError('search failed');
+    }
+    if (query == 'nothing') return const SearchPage(keys: [], totalCount: 0);
+    final from = cursor == null ? 0 : int.parse(cursor);
+    final keys = <MessageKey>[
+      for (var i = from; i < from + limit && i < matches; i++)
+        k((matches - i) * every * server.step),
+    ];
+    final next = from + limit;
+    return SearchPage(
+      keys: keys,
+      totalCount: withTotal ? matches : null,
+      nextCursor: next < matches ? '$next' : null,
+    );
   }
 }

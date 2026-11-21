@@ -22,6 +22,8 @@ export 'src/controller.dart';
 export 'src/defaults.dart';
 export 'src/events.dart';
 export 'src/item_info.dart';
+export 'src/jump.dart';
+export 'src/search.dart';
 export 'src/simple.dart';
 export 'src/view.dart';
 export 'src/viewport.dart';

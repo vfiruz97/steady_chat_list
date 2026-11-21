@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import 'jump.dart';
+
 /// Tunable numbers of a message list. The defaults are the values measured
 /// in Telegram (SPEC §2, §9).
 ///
@@ -24,6 +26,10 @@ class MessageListConfig {
     this.groupingGap = const Duration(minutes: 5),
     this.restoreIslandsAfterRestart = false,
     this.snapshotLoadBudget = const Duration(milliseconds: 50),
+    this.jump = const JumpOptions(),
+    this.loadingIndicatorDelay = const Duration(milliseconds: 150),
+    this.reselectBehavior = ReselectBehavior.jumpToBottom,
+    this.searchDebounce = const Duration(milliseconds: 300),
   });
 
   /// Messages per page.
@@ -69,4 +75,17 @@ class MessageListConfig {
 
   /// How long `loadSnapshot` may take before it is ignored.
   final Duration snapshotLoadBudget;
+
+  /// Default options of `jumpTo` and the other jumps.
+  final JumpOptions jump;
+
+  /// A jump whose page loads longer than this reports `isLoading`, so the
+  /// app can show a spinner on the button that started it.
+  final Duration loadingIndicatorDelay;
+
+  /// What `reselect()` does.
+  final ReselectBehavior reselectBehavior;
+
+  /// Quiet time after typing before a search query is sent.
+  final Duration searchDebounce;
 }

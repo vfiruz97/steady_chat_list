@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -9,6 +11,7 @@ import 'controller.dart';
 import 'defaults.dart';
 import 'events.dart';
 import 'item_info.dart';
+import 'jump.dart';
 import 'viewport.dart';
 
 /// The message list: a center-keyed scroll view over the controller's
@@ -105,8 +108,8 @@ class MessageListView<M> extends StatefulWidget {
 }
 
 class _MessageListViewState<M> extends State<MessageListView<M>>
-    with WidgetsBindingObserver
-    implements AnchoredScrollHost {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin
+    implements AnchoredScrollHost, MessageListViewport {
   final GlobalKey _viewportKey = GlobalKey(debugLabel: 'steady viewport');
   final Map<String, _RenderRow> _registry = {};
   late final _AnchoredScrollController _scroll =
@@ -125,7 +128,15 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
   int _epoch = 0;
   MessageKey? _split; // rows starting at or after this key are below
   bool _splitInclusive = true;
-  ({bool bottom, double offset})? _initialPlacement;
+  ({PlacementResolver resolve, double? guess, bool bottom})? _initialPlacement;
+  Map<String, String> _rowOfKey = const {};
+
+  // Jumps and the flash on their target.
+  _Jump? _jump;
+  late final AnimationController _flash;
+  CurvedAnimation? _flashCurve;
+  Animation<double>? _flashAnimation;
+  HighlightState? _flashState;
 
   // Anchors captured at the last accepted layout: (row id, scroll offset).
   List<(String, double)> _anchors = const [];
@@ -137,6 +148,8 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
   @override
   void initState() {
     super.initState();
+    // Created here, not lazily: a ticker must not be created in dispose.
+    _flash = AnimationController(vsync: this);
     WidgetsBinding.instance.addObserver(this);
     _listen(_controller);
     _adoptWindow();
@@ -158,6 +171,9 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _unlisten(_controller);
+    _finishJump(_jump, arrived: false);
+    _flashCurve?.dispose();
+    _flash.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -166,12 +182,18 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
     controller.window.addListener(_windowChanged);
     controller.phase.addListener(_rebuild);
     controller.lastReadOutbox.addListener(_windowChanged);
+    controller.highlightQuery.addListener(_windowChanged);
+    controller.highlighted.addListener(_highlightChanged);
+    controller.attachViewport(this);
   }
 
   void _unlisten(MessageListController<M> controller) {
     controller.window.removeListener(_windowChanged);
     controller.phase.removeListener(_rebuild);
     controller.lastReadOutbox.removeListener(_windowChanged);
+    controller.highlightQuery.removeListener(_windowChanged);
+    controller.highlighted.removeListener(_highlightChanged);
+    controller.detachViewport(this);
   }
 
   void _rebuild() {
@@ -207,24 +229,64 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
       _serial = window.placementSerial;
       _epoch++; // fresh slivers: no stale layout offsets survive a placement
       _anchors = const [];
-      final ({bool bottom, double offset}) place;
+      final ({PlacementResolver resolve, double? guess, bool bottom}) place;
       switch (placement) {
         case PlaceAnchor(:final key, :final offset):
           _split = key;
           _splitInclusive = true;
-          place = (bottom: false, offset: offset);
+          place = (
+            resolve: (min, max, viewport) => (-offset).clamp(min, max),
+            guess: -offset,
+            bottom: false,
+          );
         case PlaceUnread(:final key, :final topInset):
           _split = key;
           _splitInclusive = true;
-          place = (bottom: false, offset: topInset);
-        case PlaceBottom():
+          place = (
+            resolve: (min, max, viewport) => (-topInset).clamp(min, max),
+            guess: -topInset,
+            bottom: false,
+          );
+        case PlaceBottom(:final scroll):
           // Everything is above the center; what arrives later goes below.
           _split = window.keys.last;
           _splitInclusive = false;
-          place = (bottom: true, offset: 0);
+          final lead = scroll == null ? 0.0 : scroll.maxAnimatedDistance;
+          place = (
+            // A jump to the bottom starts up to one viewport above it.
+            resolve: (min, max, viewport) =>
+                (max - viewport * lead).clamp(min, max),
+            guess: null,
+            bottom: lead == 0,
+          );
+        case PlaceJump(
+            :final key,
+            :final alignment,
+            :final fromNewer,
+            :final scroll
+          ):
+          _split = key;
+          _splitInclusive = true;
+          place = (
+            // Up to one viewport before the target, on the side the list
+            // comes from; the jump animates the rest.
+            resolve: (min, max, viewport) {
+              final target =
+                  _alignedOffset(key, alignment, viewport, 0).clamp(min, max);
+              final lead = viewport * scroll.maxAnimatedDistance;
+              return (fromNewer ? target + lead : target - lead)
+                  .clamp(min, max);
+            },
+            guess: 0,
+            bottom: false,
+          );
       }
       if (_scroll.hasClients) {
-        _scroll.anchored.place(bottom: place.bottom, offset: place.offset);
+        _scroll.anchored.placeWith(
+          place.resolve,
+          guess: place.guess,
+          bottom: place.bottom,
+        );
       } else {
         _initialPlacement = place;
       }
@@ -239,6 +301,9 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
     final gap = controller.config.groupingGap;
     final outbox = controller.lastReadOutbox.value;
     final keys = window.keys;
+    final query = controller.highlightQuery.value;
+    final flash = _flashState;
+    final rowOfKey = <String, String>{};
 
     // Albums: neighbours with the same group id share a row.
     final groups = <List<MessageKey>>[];
@@ -274,11 +339,13 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
           before == null || grouping.dayOf(adapter, before) != day;
       final current = controller.sendStateOf(first);
       final group = adapter.groupIdOf(firstMessage);
+      final flashed = flash != null && rowKeys.contains(flash.key);
       final row = _Row(
         id: rowKeys.length > 1 && group != null ? 'album:$group' : first.id,
         keys: rowKeys,
         day: firstInDay ? day : null,
         divider: rowKeys.contains(window.unreadDividerBefore),
+        flash: flashed ? flash.serial : null,
         info: MessageItemInfo(
           key: first,
           isFirstInGroup: before == null ||
@@ -290,10 +357,16 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
           isLocal: first.isLocal,
           sendState: current,
           isRead: current == SendState.sent && outbox != null && last <= outbox,
+          highlight: flashed ? _flashAnimation : null,
+          highlightQuery: query,
+          highlightReason: flashed ? flash.reason : null,
           indexInWindow: i,
         ),
       );
       rows.add(row);
+      for (final key in rowKeys) {
+        rowOfKey[key.id] = row.id;
+      }
     }
 
     if (!placed) {
@@ -328,6 +401,7 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
     }
     _upper = upper.reversed.toList(growable: false);
     _lower = lower;
+    _rowOfKey = rowOfKey;
     _upperIndex = {for (var i = 0; i < _upper.length; i++) _upper[i].id: i};
     _lowerIndex = {for (var i = 0; i < _lower.length; i++) _lower[i].id: i};
     _built.removeWhere(
@@ -437,7 +511,8 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
 
   // ----------------------------------------------------- AnchoredScrollHost
 
-  ({bool bottom, double offset})? takeInitialPlacement() {
+  ({PlacementResolver resolve, double? guess, bool bottom})?
+      takeInitialPlacement() {
     final placement = _initialPlacement;
     _initialPlacement = null;
     return placement;
@@ -446,6 +521,185 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
   RenderViewport? get _viewport {
     final object = _viewportKey.currentContext?.findRenderObject();
     return object is RenderViewport ? object : null;
+  }
+
+  // ------------------------------------------------- highlight and jumps
+
+  void _highlightChanged() {
+    if (!mounted) return;
+    final state = _controller.highlighted.value;
+    if (state == null) {
+      _flashState = null;
+    } else if (state.serial != _flashState?.serial) {
+      _flashState = state;
+      _flashCurve?.dispose();
+      _flash
+        ..stop()
+        ..value = 0
+        ..duration = state.highlight.duration;
+      final curve = _flashCurve =
+          CurvedAnimation(parent: _flash, curve: state.highlight.curve);
+      _flashAnimation = ReverseAnimation(curve); // 1 → 0
+      final delay = state.highlight.delay;
+      if (delay == Duration.zero) {
+        _flash.forward();
+      } else {
+        Future<void>.delayed(delay, () {
+          if (mounted && _flashState?.serial == state.serial) _flash.forward();
+        });
+      }
+    }
+    setState(_adoptWindow);
+  }
+
+  _RenderRow? _rowOf(MessageKey key) {
+    final row = _registry[_rowOfKey[key.id] ?? key.id];
+    return row != null && row.attached ? row : null;
+  }
+
+  /// The scroll offset that puts [key] at [alignment]. Before the row is
+  /// laid out it counts as the first row below the center with no height.
+  double _alignedOffset(
+    MessageKey key,
+    JumpAlignment alignment,
+    double viewport,
+    double current,
+  ) {
+    final row = _rowOf(key);
+    final port = _viewport;
+    final top = row == null || port == null ? null : _topOf(row, port);
+    return alignment.resolve(
+      itemOffset: top ?? 0,
+      itemExtent: top == null ? 0 : row!.height,
+      viewport: viewport,
+      current: current,
+    );
+  }
+
+  @override
+  bool isBuilt(MessageKey key) {
+    final row = _rowOf(key);
+    final port = _viewport;
+    return row != null && port != null && _topOf(row, port) != null;
+  }
+
+  @override
+  Rect? rectOf(MessageKey key) {
+    final row = _rowOf(key);
+    if (row == null || !row.hasSize) return null;
+    return row.localToGlobal(Offset.zero) & row.size;
+  }
+
+  @override
+  Future<bool> scrollToItem(
+    MessageKey key,
+    JumpAlignment alignment,
+    JumpScroll scroll,
+  ) =>
+      _beginJump(_Jump(key, alignment, scroll));
+
+  @override
+  Future<bool> scrollToBottom(JumpScroll scroll) =>
+      _beginJump(_Jump(null, const JumpAlignment.bottom(), scroll));
+
+  @override
+  bool get isJumping => _jump != null;
+
+  Future<bool> _beginJump(_Jump jump) {
+    _finishJump(_jump, arrived: false);
+    _jump = jump;
+    if (_scroll.hasClients &&
+        !_scroll.anchored.hasPendingPlacement &&
+        (jump.key == null || isBuilt(jump.key!))) {
+      _startJump(jump);
+    } else {
+      // The window with the target is laid out in the coming frame.
+      SchedulerBinding.instance.scheduleFrame();
+    }
+    return jump.done.future;
+  }
+
+  double? _jumpTarget(_Jump jump, AnchoredScrollPosition position) {
+    final key = jump.key;
+    if (key == null) return position.maxScrollExtent;
+    if (!isBuilt(key)) return null;
+    return _alignedOffset(
+      key,
+      jump.alignment,
+      position.viewportDimension,
+      position.pixels,
+    ).clamp(position.minScrollExtent, position.maxScrollExtent);
+  }
+
+  void _startJump(_Jump jump) {
+    if (!identical(_jump, jump) || !_scroll.hasClients) return;
+    final position = _scroll.anchored;
+    final target = _jumpTarget(jump, position);
+    if (target == null) {
+      _finishJump(jump, arrived: false);
+      return;
+    }
+    final scroll = jump.scroll;
+    final distance = (target - position.pixels).abs();
+    if (scroll.isInstant || distance < 0.5) {
+      if (distance >= 0.01) position.jumpTo(target);
+      _finishJump(jump, arrived: true);
+      return;
+    }
+    // Never animate through more than the allowed distance.
+    final lead = scroll.maxAnimatedDistance * position.viewportDimension;
+    if (distance > lead) {
+      position.jumpTo(position.pixels > target ? target + lead : target - lead);
+    }
+    jump
+      ..target = target
+      ..clock.start();
+    _animateJump(jump, scroll.duration);
+  }
+
+  void _animateJump(_Jump jump, Duration duration) {
+    final position = _scroll.anchored;
+    final run = ++jump.run;
+    position
+        .animateTo(jump.target!, duration: duration, curve: jump.scroll.curve)
+        .then((_) {
+      if (!identical(_jump, jump) || jump.run != run || !mounted) return;
+      // Interrupted (a drag, another scroll) when it is not at the target.
+      _finishJump(
+        jump,
+        arrived: (_scroll.anchored.pixels - jump.target!).abs() < 1,
+      );
+    });
+  }
+
+  /// After a layout: start a jump that waited for its window, or aim a
+  /// running one at where its target is now (media loaded, rows changed).
+  void _updateJump() {
+    final jump = _jump;
+    if (jump == null || !_scroll.hasClients) return;
+    final position = _scroll.anchored;
+    if (position.hasPendingPlacement) return;
+    final current = jump.target;
+    if (current == null) {
+      _startJump(jump);
+      return;
+    }
+    final target = _jumpTarget(jump, position);
+    if (target == null || (target - current).abs() <= 0.5) return;
+    jump.target = target;
+    final left = jump.scroll.duration - jump.clock.elapsed;
+    _animateJump(
+      jump,
+      left < const Duration(milliseconds: 80)
+          ? const Duration(milliseconds: 80)
+          : left,
+    );
+  }
+
+  void _finishJump(_Jump? jump, {required bool arrived}) {
+    if (jump == null) return;
+    if (identical(_jump, jump)) _jump = null;
+    if (!jump.done.isCompleted) jump.done.complete(arrived);
   }
 
   @override
@@ -590,6 +844,7 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
   /// layout).
   void _report() {
     _reportScheduled = false;
+    if (mounted) _updateJump();
     final frame = _frame;
     final viewport = _viewport;
     if (!mounted || frame == null || viewport == null || !viewport.attached) {
@@ -624,6 +879,22 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
   }
 }
 
+/// A jump the view is carrying out.
+final class _Jump {
+  _Jump(this.key, this.alignment, this.scroll);
+
+  /// The target; null for the end of the content.
+  final MessageKey? key;
+  final JumpAlignment alignment;
+  final JumpScroll scroll;
+  final Completer<bool> done = Completer<bool>();
+
+  /// Where the animation is heading; null until it started.
+  double? target;
+  final Stopwatch clock = Stopwatch();
+  int run = 0;
+}
+
 /// What was on screen at the last accepted layout.
 final class _Frame {
   const _Frame({
@@ -655,6 +926,7 @@ final class _Row {
     required this.info,
     required this.day,
     required this.divider,
+    this.flash,
   });
 
   final String id;
@@ -663,12 +935,16 @@ final class _Row {
   final DateTime? day;
   final bool divider;
 
+  /// Serial of the flash on this row, if it is the jump target.
+  final int? flash;
+
   @override
   bool operator ==(Object other) {
     if (other is! _Row ||
         other.id != id ||
         other.day != day ||
         other.divider != divider ||
+        other.flash != flash ||
         other.info != info ||
         other.keys.length != keys.length) {
       return false;
@@ -922,7 +1198,11 @@ class _AnchoredScrollController extends ScrollController {
     );
     final placement = _host.takeInitialPlacement();
     if (placement != null) {
-      position.place(bottom: placement.bottom, offset: placement.offset);
+      position.placeWith(
+        placement.resolve,
+        guess: placement.guess,
+        bottom: placement.bottom,
+      );
     }
     return position;
   }

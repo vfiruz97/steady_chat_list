@@ -9,6 +9,7 @@
 library;
 
 export 'src/hub.dart';
+export 'src/jump.dart';
 export 'src/list_event.dart';
 export 'src/list_store.dart';
 export 'src/message_key.dart';

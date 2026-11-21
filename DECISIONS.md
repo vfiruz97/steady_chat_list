@@ -172,7 +172,7 @@ Its replacement does not exist in Flutter 3.24, the minimum version.
 **D53. App lifecycle.**
 `paused`, `hidden` and `detached` save the position with `SaveReason.appPaused`; on the web, hiding or closing the tab reports `hidden`, so no `dart:html` listener is needed. `SaveReason.pageHide` is reserved.
 
-**D54. Not in the view yet:** jump animations and highlight (milestone 4), remove/appear animations (5), theming, floating day chip, geometry API, keyboard shortcuts, semantics order (6), debug overlay (8).
+**D54. Not in the view yet:** remove/appear animations (5), theming, floating day chip, geometry API, keyboard shortcuts, semantics order (6), debug overlay (8).
 
 **D55. The stress test compares frames where holding the anchor is possible.**
 A frame is skipped when the list is pinned, still settling, or within 700 px of an end of the content (deleting can then leave less content than the distance to the end, and the physics must move the list). At least 80% of the 600 frames per run are compared.
@@ -201,6 +201,35 @@ Before, it was stored as an orphan and never shown. This matters for list and st
 
 **D63. Default states were pulled forward from milestone 6.**
 `DefaultLoadingState`, `DefaultEmptyState`, `DefaultErrorState` and `SteadySpinner` use only `package:flutter/widgets.dart`, so they work in Material, Cupertino and custom apps. The texts are English; apps localize by passing builders.
+
+## Jumps and search (§10.4, §10.5, §10.10)
+
+**D64. A jump outside the window swaps the window; the extra "current anchor message" is not kept.**
+§10.4 builds the new window as "[current anchor message] + keys around the target". Telegram needs that for its DOM; here the swap happens in one frame with fresh slivers, the first frame already shows content one viewport before the target, and the rest is animated. Keeping one stray old message at the edge would only add a visible artifact.
+
+**D65. A jump inside the window scrolls only when the target is laid out and has room.**
+If the target is in the window but not built (far away), or sits so close to the window edge that it could not be centered, the window is rebuilt around it (from memory, or with one `around` fetch). Otherwise the jump would stop early at the end of the loaded content.
+
+**D66. The view decides how to move; the controller decides where.**
+`MessageListViewport` (`scrollToItem`, `scrollToBottom`, `isBuilt`, `rectOf`) is implemented by `MessageListView`; tests and custom views can implement it. While a jump animates, anchor correction is off and the jump re-aims at where its target is now (media loading, rows changing).
+
+**D67. Jump fetches run one at a time.**
+A jump that is superseded while it waits for the running fetch never sends its own. Ten fast "next result" presses cause at most two requests in flight (test 12).
+
+**D68. The highlight is timed by the controller and animated by the view.**
+The controller sets `highlighted` and emits `highlightEnded` after `delay + duration`, so headless users and analytics get the same events. The view runs one animation and hands it to the target row as `MessageItemInfo.highlight`.
+
+**D69. `highlightQuery` is given to every item while a search is active**, not only to the target, so all visible matches can be marked. `MessageSearchNavigator.close()` or `clearHighlightQuery()` clears it.
+
+**D70. Jump to date aligns the row top.** Day headers are part of the first row of the day (D48), so "below the day header" needs no header height.
+
+**D71. Unread mentions and reactions are removed locally on arrival** (the read state is updated as an event). A server read state that arrives later replaces it.
+
+**D72. `jumpToPinned(key, barHeight:)`** takes the bar height as an argument; the list doesn't know the app's pinned bar.
+
+**D73. `reselect()` stays `void`** (as specified) and reports through `onJump`. `switchTo` with a message target on the open list is a jump with `JumpReason.deepLink`.
+
+**D74. Not done from §10.4:** moving accessibility focus to the target on arrival (milestone 6, with semantics).
 
 ## Known limits
 

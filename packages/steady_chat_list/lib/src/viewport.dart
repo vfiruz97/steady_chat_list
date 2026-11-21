@@ -3,6 +3,8 @@ import 'dart:ui' show Rect;
 import 'package:flutter/foundation.dart';
 import 'package:steady_chat_list_core/steady_chat_list_core.dart';
 
+import 'jump.dart';
+
 /// One item on screen.
 ///
 /// ```dart
@@ -73,6 +75,7 @@ final class ViewportMetrics {
 ///   case PlaceAnchor(:final key, :final offset): ...
 ///   case PlaceBottom(): ...
 ///   case PlaceUnread(:final key, :final topInset): ...
+///   case PlaceJump(:final key, :final alignment): ...
 ///   case null: // keep the current position
 /// }
 /// ```
@@ -93,10 +96,39 @@ final class PlaceAnchor extends WindowPlacement {
   final double offset;
 }
 
-/// Show the end of the window, pinned to the bottom.
+/// Show the end of the window, pinned to the bottom. With [scroll] the view
+/// starts up to one viewport above and animates down (a jump to the bottom).
 final class PlaceBottom extends WindowPlacement {
   /// Creates the placement.
-  const PlaceBottom();
+  const PlaceBottom({this.scroll});
+
+  /// How to arrive; null puts the list there before the first paint.
+  final JumpScroll? scroll;
+}
+
+/// A jump into a new window: start up to one viewport away from where
+/// [key] will be at [alignment], on the side the list comes from, then
+/// animate the rest (§10.4).
+final class PlaceJump extends WindowPlacement {
+  /// Creates the placement.
+  const PlaceJump(
+    this.key,
+    this.alignment, {
+    required this.fromNewer,
+    required this.scroll,
+  });
+
+  /// The jump target.
+  final MessageKey key;
+
+  /// Where the target ends up.
+  final JumpAlignment alignment;
+
+  /// Whether the list comes from newer messages (it then travels upward).
+  final bool fromNewer;
+
+  /// How it moves.
+  final JumpScroll scroll;
 }
 
 /// Put the unread divider (shown before [key]) at [topInset] px below the
