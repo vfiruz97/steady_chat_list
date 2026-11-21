@@ -326,7 +326,7 @@ The schema is plain SQL in `SteadyCacheDatabase`, so the package works with ever
 
 **D111. Benchmarks measure frame times with `SchedulerBinding.addTimingsCallback` and run with `flutter drive --profile`.** `traceAction` needs a VM service connection that is not available on every target; frame timings are the same numbers the engine reports to DevTools. "Build" in the results is the whole UI-thread part of a frame (build, layout and paint), which is stricter than the "build + layout" of §14.1. Budgets are asserted with 10% slack in profile and release builds only. There is no CI in the repository yet; the same command is what a CI job would run.
 
-**D112. Not measured: a physical mid-range Android phone, and Chrome frame times.** Only a desktop and an emulator were available. The emulator numbers are in the results as a lower bound for a real device.
+**D112. Measured on: macOS, an Android emulator, a Galaxy S24 Ultra (profile), and an iPhone simulator (debug, correctness only). Not measured: a mid-range Android phone, a physical iPhone, and Chrome frame times.**
 
 ## Known limits
 

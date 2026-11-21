@@ -55,6 +55,28 @@ cd benchmarks && flutter test integration_test/anchor_stress_test.dart -d <devic
 | 200 reaction updates/s on visible messages for 15 s (3,001 updates) | build p95 1.8 ms, max 5.5 ms; 0 frames over 16 ms | no dropped frames ✅ |
 | Memory after scrolling 100,000 messages | 1,000 messages held at 2,000 and at 100,000; 80 in the window, 10 rows built; process 199 MB → 218 MB (+9.5%) | flat ±10% ✅ |
 
+### Samsung Galaxy S24 Ultra (SM-S928B), Android 15, 120 Hz, Flutter 3.50.1
+
+A physical phone over USB, profile mode. It is a flagship: these numbers show a fast phone, not the mid-range device of §14.1. At 120 Hz a frame has 8.3 ms.
+
+| Scenario | Result | Budget (§14.1) |
+| --- | --- | --- |
+| Fling through 5,000 messages (4,128 frames) | build p50 0.96 ms, p95 2.5 ms; one frame of 17.5 ms, none over 32 ms; no blank frame | p95 ≤ 8 ms, none over 32 ms ✅ |
+| Open a cached chat | first frame shows the messages; build median 9.9 ms, max 12.0 ms | same frame, ≤ 16 ms ✅ |
+| Jump, target on the server (20 jumps) | median 580 ms, max 593 ms; no blank frame | ≤ 700 ms ✅ |
+| Jump, target in memory (20 jumps) | median 429 ms, max 431 ms | ≤ 450 ms ✅ |
+| 50 incoming messages/s for 30 s | build p95 3.1 ms, max 5.0 ms; whole frame (build + raster) max 9.6 ms | no dropped frames ✅ at 60 Hz; one frame over the 8.3 ms of 120 Hz |
+| 200 reaction updates/s for 15 s | build p95 1.7 ms, max 8.5 ms; 0 builds over 16 ms; one raster spike of 37 ms | no dropped frames: one slow raster frame ⚠️ |
+| Memory after scrolling 100,000 messages | 1,000 messages held throughout; process 291 MB → 295 MB (+1.4%) | flat ±10% ✅ |
+
+### iPhone 16 Pro simulator, Flutter 3.50.1 (debug build)
+
+Simulators cannot run profile builds, so this is a correctness run; the times are debug-mode times and are not compared with the budgets.
+
+- Anchor stress test (10 s of random inserts, deletes and resizes every frame, twice): largest anchor movement 0.0 px and 5.7e-14 px.
+- All six performance scenarios complete: no blank frame in the fling or in 40 jumps, the list stays at the bottom through 1,497 incoming messages, 1,000 messages in memory after scrolling 100,000.
+- The example app builds, installs and runs (with the SQLite cache plugin).
+
 ### Android 15 emulator (API 35, arm64, on the same Mac), Flutter 3.50.1
 
 An emulator renders without a real GPU: whole frames take about 18 ms here because of rasterization, so only the UI-thread numbers say something about the package. A physical phone was not available.
@@ -85,6 +107,6 @@ In Chrome (IndexedDB storage, the example app) reading a cached chat of a few hu
 
 ### Not measured
 
-- A physical mid-range Android phone and an iPhone: none was available. The emulator numbers above are the closest.
+- A mid-range Android phone (the budgets of §14.1 name one; the phone measured is a flagship) and a physical iPhone.
 - Chrome frame times. The example was exercised in Chrome (release build) for correctness: paging, jumps, search, the cache and restoring the position after a reload; its frame times were not recorded.
 - There is no CI yet; the command above is what a CI job would run, and it fails when a budget is exceeded by more than 10%.
