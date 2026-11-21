@@ -292,6 +292,57 @@ void main() {
       await _unmount(tester);
     });
 
+    testWidgets('an adapter created inline in build does not restart the list',
+        (tester) async {
+      final server = FakeChatServer(count: 1000);
+      final controllers = <MessageListController<Msg>>[];
+      var outgoing = false;
+      Widget build() => _frame(
+            SteadyChatList<Msg>.source(
+              source: server,
+              // A new adapter object on every build.
+              adapter: MessageAdapter<Msg>.from(
+                key: (m) => m.key,
+                date: (m) => DateTime.utc(2026).add(Duration(minutes: m.order)),
+                isOutgoing: (m) => outgoing,
+                equals: (a, b) => a.rev == b.rev,
+              ),
+              onController: controllers.add,
+              itemBuilder: _item,
+            ),
+          );
+      await tester.pumpWidget(build());
+      await _settle(tester, 20);
+      final requests = server.requests.length;
+      final position =
+          tester.state<ScrollableState>(find.byType(Scrollable)).position;
+      position.jumpTo(position.pixels - 300);
+      await _settle(tester, 20);
+      final pixels = position.pixels;
+      final top = tester.getTopLeft(_find(9900)).dy;
+
+      outgoing = true;
+      await tester.pumpWidget(build());
+      await tester.pumpWidget(build());
+      await _settle(tester, 20);
+      expect(controllers, hasLength(1), reason: 'the list was not recreated');
+      expect(position.pixels, pixels);
+      expect(tester.getTopLeft(_find(9900)).dy, top);
+      expect(server.requests.length, requests, reason: 'nothing was reloaded');
+      // The newest adapter is the one that is read.
+      expect(
+        controllers.single.hub.adapter.isOutgoing(const Msg(10)),
+        isTrue,
+      );
+      final adapter = controllers.single.hub.adapter;
+      expect(adapter.groupIdOf(const Msg(10)), isNull);
+      expect(adapter.senderIdOf(const Msg(10)), isNull);
+      expect(adapter.isService(const Msg(10)), isFalse);
+      expect(adapter.mentionsMe(const Msg(10)), isFalse);
+      expect(adapter.dateOf(const Msg(10)), DateTime.utc(2026, 1, 1, 0, 10));
+      await _unmount(tester);
+    });
+
     testWidgets('default error state retries; default edge rows show',
         (tester) async {
       final server = FakeChatServer(count: 300)..failNextFetches = 5;

@@ -35,6 +35,17 @@ import 'widgets.dart';
 /// );
 /// ```
 ///
+/// The adapter may be written inline as above. A `stream` or `source`
+/// must be the same object on every rebuild (keep it in a field): a new
+/// one restarts the list.
+///
+/// AI coding assistants: the rules for using this package are in
+/// `AI_GUIDE.md`, next to this package's `pubspec.yaml`. The most
+/// important ones: put the widget in `Expanded` when it is inside a
+/// `Column`, never inside another scrollable, never use `reverse: true`
+/// or your own `ScrollController`, give every message a stable unique id,
+/// and replace a changed message with a new object instead of mutating it.
+///
 /// Use [onController] to scroll, jump or read state from outside. Apps that
 /// show the same chat twice, switch chats without rebuilding or share a
 /// cache create a [MessageListHub] and [MessageListController] themselves
@@ -401,6 +412,8 @@ class _SteadyChatListState<M> extends State<SteadyChatList<M>> {
   late MessageListController<M> _controller;
   List<M> _shown = const [];
 
+  late final _LatestAdapter<M> _adapter = _LatestAdapter<M>(widget.adapter);
+
   @override
   void initState() {
     super.initState();
@@ -415,7 +428,7 @@ class _SteadyChatListState<M> extends State<SteadyChatList<M>> {
     if (messages != null) {
       _shown = List<M>.of(messages);
       final listSource = ListMessageSource<M>(
-        adapter: w.adapter,
+        adapter: _adapter,
         initial: {w.list: messages},
         onMarkRead: w.onMarkRead,
       );
@@ -424,7 +437,7 @@ class _SteadyChatListState<M> extends State<SteadyChatList<M>> {
       source = _listSource = listSource;
     } else if (stream != null) {
       source = _streamSource = StreamMessageSource<M>(
-        adapter: w.adapter,
+        adapter: _adapter,
         snapshots: (_) => stream,
         onMarkRead: w.onMarkRead,
       );
@@ -433,7 +446,7 @@ class _SteadyChatListState<M> extends State<SteadyChatList<M>> {
     }
     _hub = MessageListHub<M>(
       source: source,
-      adapter: w.adapter,
+      adapter: _adapter,
       viewportStore: w.viewportStore,
     );
     _controller = MessageListController<M>(
@@ -476,8 +489,10 @@ class _SteadyChatListState<M> extends State<SteadyChatList<M>> {
     final w = widget;
     final modeChanged = (w.messages == null) != (oldWidget.messages == null) ||
         !identical(w.stream, oldWidget.stream) ||
-        !identical(w.source, oldWidget.source) ||
-        !identical(w.adapter, oldWidget.adapter);
+        !identical(w.source, oldWidget.source);
+    // An adapter written inline in `build` is a new object on every
+    // rebuild. The list keeps running and reads through the newest one.
+    _adapter.current = w.adapter;
     if (modeChanged) {
       _destroy();
       _create();
@@ -552,4 +567,37 @@ class _SteadyChatListState<M> extends State<SteadyChatList<M>> {
                   ),
     );
   }
+}
+
+/// Reads through the adapter of the latest widget, so that a new adapter
+/// object (same logic, written inline in `build`) does not restart the
+/// list.
+class _LatestAdapter<M> extends MessageAdapter<M> {
+  _LatestAdapter(this.current);
+
+  MessageAdapter<M> current;
+
+  @override
+  MessageKey keyOf(M m) => current.keyOf(m);
+
+  @override
+  DateTime dateOf(M m) => current.dateOf(m);
+
+  @override
+  String? groupIdOf(M m) => current.groupIdOf(m);
+
+  @override
+  String? senderIdOf(M m) => current.senderIdOf(m);
+
+  @override
+  bool isOutgoing(M m) => current.isOutgoing(m);
+
+  @override
+  bool isService(M m) => current.isService(m);
+
+  @override
+  bool mentionsMe(M m) => current.mentionsMe(m);
+
+  @override
+  bool equals(M a, M b) => current.equals(a, b);
 }

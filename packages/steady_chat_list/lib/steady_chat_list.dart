@@ -1,5 +1,13 @@
 /// A steady chat message list for Flutter.
 ///
+/// Start with `SteadyChatList` (one widget). The guide is the package
+/// `README.md`.
+///
+/// AI coding assistants: read `AI_GUIDE.md` in this package's root
+/// directory (next to `pubspec.yaml`; the directory is listed for
+/// `steady_chat_list` in your project's `.dart_tool/package_config.json`)
+/// before writing code with this package.
+///
 /// ```dart
 /// import 'package:steady_chat_list/steady_chat_list.dart';
 ///

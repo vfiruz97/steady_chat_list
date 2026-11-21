@@ -15,6 +15,7 @@ All packages in this repository share one version.
 ### steady_chat_list
 
 - `MessageListView(debugOverlay: true)` and `controller.debugDescribe()`.
+- **Changed:** `SteadyChatList` no longer restarts the list when it is rebuilt with a new adapter object (an adapter written inline in `build`); it reads through the newest one.
 - `controller.typingUserIds` for a typing indicator.
 - **Changed:** `MessageListConfig.restoreIslandsAfterRestart` defaults to true: a position deep in the history is restored after a restart or a browser reload, also when the chat has unread messages. Set it to false for the previous behavior.
 - **Fixed:** memory is trimmed whenever the window moves (paging, jumps, new messages at the bottom), not only when it grows from messages already in memory.

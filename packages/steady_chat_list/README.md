@@ -172,7 +172,11 @@ All optional and themed with `MessageListTheme` (no Material dependency): `Messa
 
 ### Using an AI coding assistant
 
-[AI_GUIDE.md](https://github.com/vfiruz97/steady_chat_list/blob/main/packages/steady_chat_list/AI_GUIDE.md) is a short rule list for assistants that write code with this package: which mode to pick, what must not be created inside `build()`, layout rules, sending, and a checklist of the usual mistakes. Point your assistant at it (for example from your project's `AGENTS.md` or `CLAUDE.md`).
+[AI_GUIDE.md](https://github.com/vfiruz97/steady_chat_list/blob/main/packages/steady_chat_list/AI_GUIDE.md) is a short rule list for assistants that write code with this package: which mode to pick, layout rules, sending, and a checklist of the usual mistakes. It ships inside the package, but no assistant reads a dependency's files on its own. Add one line to your project's `AGENTS.md`, `CLAUDE.md` or editor rules:
+
+```text
+Before writing code that uses steady_chat_list, read AI_GUIDE.md in that package's root directory (its path is in .dart_tool/package_config.json) and follow it.
+```
 
 ### Debugging
 

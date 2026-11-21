@@ -2,7 +2,11 @@
 
 You are writing Flutter code that uses the `steady_chat_list` package. Follow these rules exactly. They are short on purpose. When a rule and your habit disagree, the rule wins.
 
-To make an assistant follow this file, copy it (or a link to it) into the project's `AGENTS.md`, `CLAUDE.md`, `.cursor/rules` or similar.
+This file is in the root directory of the package (next to `pubspec.yaml`). Nothing loads it automatically. To make an assistant follow it, add this line to the project's `AGENTS.md`, `CLAUDE.md`, `.cursor/rules` or similar:
+
+```text
+Before writing code that uses steady_chat_list, read AI_GUIDE.md in that package's root directory (its path is in .dart_tool/package_config.json) and follow it.
+```
 
 ## What the package is for
 
@@ -22,7 +26,7 @@ Never import from `package:steady_chat_list/src/...` or from `steady_chat_list_c
 The adapter tells the list how to read your message class.
 
 ```dart
-// Top level or a static/final field. NOT inside build().
+// Top level or a static/final field.
 final chatAdapter = MessageAdapter<ChatMessage>.from(
   key: (m) => MessageKey(
     order: m.sentAt.microsecondsSinceEpoch, // int, bigger = newer
@@ -36,7 +40,7 @@ final chatAdapter = MessageAdapter<ChatMessage>.from(
 
 Rules for the adapter:
 
-1. **Create it once.** A top-level `final`, a `static final`, or a field of a `State`. If you create it inside `build()`, the whole list is thrown away and rebuilt on every rebuild.
+1. **Create it once.** A top-level `final`, a `static final`, or a field of a `State`. (`SteadyChatList` tolerates an adapter written inline in `build()`, but a `MessageListHub` you create yourself needs one fixed adapter.)
 2. **`id` must be unique and must never change** for a message. Use the server id. Do not use the list index. Do not use the text.
 3. **`order` is an `int` that sorts messages oldest to newest.** A timestamp in microseconds or a server sequence number. It must not change for a message, except when a pending message gets confirmed.
 4. **`id` is a `String`.** If your id is an int, write `id: '${m.id}'`.
@@ -296,7 +300,7 @@ SteadyChatList<ChatMessage>.source(
 
 Go through this list. Each line is a bug an assistant has written.
 
-- [ ] Adapter, stream or source created inside `build()`.
+- [ ] Stream or source created inside `build()` (it restarts the list on every rebuild).
 - [ ] The list is inside a `Column` without `Expanded`, or inside another scrollable.
 - [ ] `reverse: true`, a manual sort, or a `ScrollController` was added.
 - [ ] Message ids come from the list index, or change after an edit.
