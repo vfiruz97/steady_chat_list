@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:steady_chat_list_core/steady_chat_list_core.dart';
 
 import 'jump.dart';
+import 'viewport.dart';
 
 /// What the list as a whole is doing.
 ///
@@ -378,6 +379,78 @@ final class CurrentPinnedChanged extends MessageListEvent {
   final MessageKey? key;
 }
 
+/// The first or last visible message changed (at most once per frame).
+/// Callback: `onVisibleRangeChanged`.
+final class VisibleRangeChanged extends MessageListEvent {
+  /// Creates the event.
+  const VisibleRangeChanged(super.list, this.range);
+
+  /// What is on screen now; null when nothing is.
+  final VisibleRange? range;
+}
+
+/// An item crossed a visibility threshold (hidden, partly, mostly, fully
+/// visible). For media autoplay and pause. Callback: `onItemVisibility`.
+final class ItemVisibilityChanged extends MessageListEvent {
+  /// Creates the event.
+  const ItemVisibilityChanged(super.list, this.key, this.fraction);
+
+  /// The message.
+  final MessageKey key;
+
+  /// The visible part of its height, 0–1.
+  final double fraction;
+}
+
+/// Messages were seen for the first time in this visit (view counters).
+/// Callback: `onMessagesSeen`.
+final class MessagesSeen extends MessageListEvent {
+  /// Creates the event.
+  const MessagesSeen(super.list, this.keys);
+
+  /// The newly seen messages.
+  final List<MessageKey> keys;
+}
+
+/// A message left the window (release its video player). Callback:
+/// `onItemDisposed`.
+final class ItemDisposed extends MessageListEvent {
+  /// Creates the event.
+  const ItemDisposed(super.list, this.key);
+
+  /// The message.
+  final MessageKey key;
+}
+
+/// The messages just beyond the window edges, to warm image and video
+/// caches. Callback: `onPrefetch` (typed).
+final class PrefetchSuggested extends MessageListEvent {
+  /// Creates the event.
+  const PrefetchSuggested(super.list, this.messages);
+
+  /// The upcoming messages (the app's message type).
+  final List<Object?> messages;
+}
+
+/// The day of the topmost visible message changed. Callback:
+/// `onTopVisibleDayChanged`.
+final class TopVisibleDayChanged extends MessageListEvent {
+  /// Creates the event.
+  const TopVisibleDayChanged(super.list, this.day);
+
+  /// Local midnight of that day; null when nothing is visible.
+  final DateTime? day;
+}
+
+/// A day header or the floating day chip was tapped. Callback: `onDayTap`.
+final class DayTapped extends MessageListEvent {
+  /// Creates the event.
+  const DayTapped(super.list, this.day);
+
+  /// The tapped day.
+  final DateTime day;
+}
+
 /// A diagnostic was reported. Callback: `onDiagnostic`.
 final class DiagnosticReported extends MessageListEvent {
   /// Creates the event.
@@ -416,6 +489,13 @@ class MessageListCallbacks<M> {
     this.onCurrentPinnedChanged,
     this.shouldAnimateInsert,
     this.shouldAnimateRemove,
+    this.onVisibleRangeChanged,
+    this.onItemVisibility,
+    this.onMessagesSeen,
+    this.onItemDisposed,
+    this.onPrefetch,
+    this.onTopVisibleDayChanged,
+    this.onDayTap,
     this.onDiagnostic,
   });
 
@@ -476,6 +556,31 @@ class MessageListCallbacks<M> {
 
   /// Whether a deleted message plays the remove animation (default: yes).
   final bool Function(MessageKey key, RemoveCause cause)? shouldAnimateRemove;
+
+  /// The first or last visible message changed (at most once per frame).
+  /// Use it to move overlays that are attached to items.
+  final void Function(ListId list, VisibleRange? range)? onVisibleRangeChanged;
+
+  /// An item became hidden, partly, mostly or fully visible. Start and
+  /// pause media with it.
+  final void Function(ListId list, MessageKey key, double fraction)?
+      onItemVisibility;
+
+  /// Messages were seen for the first time in this visit.
+  final void Function(ListId list, List<MessageKey> keys)? onMessagesSeen;
+
+  /// A message left the window: release what it holds.
+  final void Function(ListId list, MessageKey key)? onItemDisposed;
+
+  /// The messages just beyond the window edges: warm their media.
+  final void Function(ListId list, List<M> upcoming)? onPrefetch;
+
+  /// The day of the topmost visible message changed.
+  final void Function(ListId list, DateTime? day)? onTopVisibleDayChanged;
+
+  /// A day header or the floating day chip was tapped (open a date picker
+  /// and call `jumpToDate`).
+  final void Function(ListId list, DateTime day)? onDayTap;
 
   /// A diagnostic was reported.
   final void Function(MessageListDiagnostic diagnostic)? onDiagnostic;

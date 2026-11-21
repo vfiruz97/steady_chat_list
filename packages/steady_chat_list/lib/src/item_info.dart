@@ -47,6 +47,8 @@ class MessageItemInfo {
     this.highlight,
     this.highlightQuery,
     this.highlightReason,
+    this.isSelected = false,
+    this.selectionActive = false,
     this.indexInWindow = 0,
   });
 
@@ -88,6 +90,12 @@ class MessageItemInfo {
   /// Why the jump that flashes this message happened.
   final JumpReason? highlightReason;
 
+  /// Whether the message is selected.
+  final bool isSelected;
+
+  /// Whether selection mode is on (show checkboxes).
+  final bool selectionActive;
+
   /// Position in the window (debug only).
   final int indexInWindow;
 
@@ -106,6 +114,8 @@ class MessageItemInfo {
         highlight: highlight,
         highlightQuery: highlightQuery,
         highlightReason: highlightReason,
+        isSelected: isSelected,
+        selectionActive: selectionActive,
         indexInWindow: indexInWindow,
       );
 
@@ -124,7 +134,9 @@ class MessageItemInfo {
       other.isRead == isRead &&
       identical(other.highlight, highlight) &&
       other.highlightQuery == highlightQuery &&
-      other.highlightReason == highlightReason;
+      other.highlightReason == highlightReason &&
+      other.isSelected == isSelected &&
+      other.selectionActive == selectionActive;
 
   @override
   int get hashCode => Object.hash(
@@ -138,6 +150,8 @@ class MessageItemInfo {
         isRead,
         highlightQuery,
         highlightReason,
+        isSelected,
+        selectionActive,
       );
 }
 

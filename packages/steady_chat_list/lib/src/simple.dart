@@ -8,6 +8,7 @@ import 'controller.dart';
 import 'events.dart';
 import 'item_info.dart';
 import 'view.dart';
+import 'widgets.dart';
 
 /// The whole message list in one widget: it creates the hub and the
 /// controller, opens the list and disposes everything.
@@ -68,6 +69,9 @@ class SteadyChatList<M> extends StatefulWidget {
     this.physics,
     this.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.onDrag,
     this.scrollbar = true,
+    this.scrollDownButton = true,
+    this.scrollDownButtonBuilder,
+    this.floatingDayBuilder,
   });
 
   /// A list over [messages] the app already has (any order).
@@ -103,6 +107,10 @@ class SteadyChatList<M> extends StatefulWidget {
     ScrollViewKeyboardDismissBehavior keyboardDismissBehavior =
         ScrollViewKeyboardDismissBehavior.onDrag,
     bool scrollbar = true,
+    bool scrollDownButton = true,
+    Widget Function(BuildContext context, int unread, VoidCallback onTap)?
+        scrollDownButtonBuilder,
+    DayHeaderBuilder? floatingDayBuilder,
   }) : this._(
           key: key,
           messages: messages,
@@ -130,6 +138,9 @@ class SteadyChatList<M> extends StatefulWidget {
           physics: physics,
           keyboardDismissBehavior: keyboardDismissBehavior,
           scrollbar: scrollbar,
+          scrollDownButton: scrollDownButton,
+          scrollDownButtonBuilder: scrollDownButtonBuilder,
+          floatingDayBuilder: floatingDayBuilder,
         );
 
   /// A list over a [stream] whose every event is the complete conversation.
@@ -168,6 +179,10 @@ class SteadyChatList<M> extends StatefulWidget {
     ScrollViewKeyboardDismissBehavior keyboardDismissBehavior =
         ScrollViewKeyboardDismissBehavior.onDrag,
     bool scrollbar = true,
+    bool scrollDownButton = true,
+    Widget Function(BuildContext context, int unread, VoidCallback onTap)?
+        scrollDownButtonBuilder,
+    DayHeaderBuilder? floatingDayBuilder,
   }) : this._(
           key: key,
           stream: stream,
@@ -194,6 +209,9 @@ class SteadyChatList<M> extends StatefulWidget {
           physics: physics,
           keyboardDismissBehavior: keyboardDismissBehavior,
           scrollbar: scrollbar,
+          scrollDownButton: scrollDownButton,
+          scrollDownButtonBuilder: scrollDownButtonBuilder,
+          floatingDayBuilder: floatingDayBuilder,
         );
 
   /// A list over a paged backend.
@@ -232,6 +250,10 @@ class SteadyChatList<M> extends StatefulWidget {
     ScrollViewKeyboardDismissBehavior keyboardDismissBehavior =
         ScrollViewKeyboardDismissBehavior.onDrag,
     bool scrollbar = true,
+    bool scrollDownButton = true,
+    Widget Function(BuildContext context, int unread, VoidCallback onTap)?
+        scrollDownButtonBuilder,
+    DayHeaderBuilder? floatingDayBuilder,
   }) : this._(
           key: key,
           source: source,
@@ -257,6 +279,9 @@ class SteadyChatList<M> extends StatefulWidget {
           physics: physics,
           keyboardDismissBehavior: keyboardDismissBehavior,
           scrollbar: scrollbar,
+          scrollDownButton: scrollDownButton,
+          scrollDownButtonBuilder: scrollDownButtonBuilder,
+          floatingDayBuilder: floatingDayBuilder,
         );
 
   /// List mode: every message of the conversation.
@@ -342,6 +367,18 @@ class SteadyChatList<M> extends StatefulWidget {
 
   /// See [MessageListView.scrollbar].
   final bool scrollbar;
+
+  /// Whether a scroll-to-bottom button with the unread count floats over
+  /// the list (the default [ScrollDownButton], or
+  /// [scrollDownButtonBuilder]).
+  final bool scrollDownButton;
+
+  /// See [MessageListView.scrollDownButtonBuilder].
+  final Widget Function(BuildContext context, int unread, VoidCallback onTap)?
+      scrollDownButtonBuilder;
+
+  /// See [MessageListView.floatingDayBuilder].
+  final DayHeaderBuilder? floatingDayBuilder;
 
   @override
   State<SteadyChatList<M>> createState() => _SteadyChatListState<M>();
@@ -490,6 +527,18 @@ class _SteadyChatListState<M> extends State<SteadyChatList<M>> {
       physics: w.physics,
       keyboardDismissBehavior: w.keyboardDismissBehavior,
       scrollbar: w.scrollbar,
+      floatingDayBuilder: w.floatingDayBuilder,
+      scrollDownButtonBuilder: !w.scrollDownButton
+          ? null
+          : w.scrollDownButtonBuilder ??
+              (context, unread, onTap) => ValueListenableBuilder(
+                    valueListenable: _controller.jumpInProgress,
+                    builder: (context, jump, _) => ScrollDownButton(
+                      unread: unread,
+                      onTap: onTap,
+                      loading: jump?.isLoading ?? false,
+                    ),
+                  ),
     );
   }
 }

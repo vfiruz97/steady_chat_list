@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:steady_chat_list_core/steady_chat_list_core.dart';
 
@@ -13,6 +14,7 @@ import 'events.dart';
 import 'item_info.dart';
 import 'jump.dart';
 import 'viewport.dart';
+import 'widgets.dart';
 
 /// The message list: a center-keyed scroll view over the controller's
 /// window that never moves content under the reader's eyes (§11).
@@ -51,6 +53,9 @@ class MessageListView<M> extends StatefulWidget {
     this.scrollbar = true,
     this.appearTransitionBuilder,
     this.removeTransitionBuilder,
+    this.scrollDownButtonBuilder,
+    this.floatingDayBuilder,
+    this.keyboardShortcuts = true,
   });
 
   /// Decides what is shown.
@@ -114,6 +119,31 @@ class MessageListView<M> extends StatefulWidget {
   /// side.
   final ItemTransitionBuilder? removeTransitionBuilder;
 
+  /// Builds a scroll-to-bottom button that floats over the bottom end
+  /// corner while the newest message is more than a screen away. It gets
+  /// the unread count and what to do on tap. No button without it; see
+  /// also `MessageListButtons` for placing the buttons yourself.
+  ///
+  /// ```dart
+  /// scrollDownButtonBuilder: (context, unread, onTap) =>
+  ///     ScrollDownButton(unread: unread, onTap: onTap),
+  /// ```
+  final Widget Function(BuildContext context, int unread, VoidCallback onTap)?
+      scrollDownButtonBuilder;
+
+  /// Builds a chip with the day of the topmost message that floats at the
+  /// top while the list scrolls and fades out a second after it stops.
+  ///
+  /// ```dart
+  /// floatingDayBuilder: (context, day, onTap) =>
+  ///     DayHeader(day: day, onTap: onTap),
+  /// ```
+  final DayHeaderBuilder? floatingDayBuilder;
+
+  /// Whether the list reacts to PageUp, PageDown, Home, End and the arrow
+  /// keys on desktop and web (after it was clicked).
+  final bool keyboardShortcuts;
+
   @override
   State<MessageListView<M>> createState() => _MessageListViewState<M>();
 }
@@ -141,6 +171,11 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
   bool _splitInclusive = true;
   ({PlacementResolver resolve, double? guess, bool bottom})? _initialPlacement;
   Map<String, String> _rowOfKey = const {};
+
+  // Keyboard and the floating day chip.
+  final FocusNode _focus =
+      FocusNode(debugLabel: 'steady_chat_list', skipTraversal: true);
+  final ValueNotifier<bool> _scrolling = ValueNotifier(false);
 
   // Jumps and the flash on their target.
   _Jump? _jump;
@@ -185,6 +220,8 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
     _finishJump(_jump, arrived: false);
     _flashCurve?.dispose();
     _flash.dispose();
+    _focus.dispose();
+    _scrolling.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -195,6 +232,7 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
     controller.lastReadOutbox.addListener(_windowChanged);
     controller.highlightQuery.addListener(_windowChanged);
     controller.highlighted.addListener(_highlightChanged);
+    controller.selection.addListener(_windowChanged);
     controller.attachViewport(this);
   }
 
@@ -204,6 +242,7 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
     controller.lastReadOutbox.removeListener(_windowChanged);
     controller.highlightQuery.removeListener(_windowChanged);
     controller.highlighted.removeListener(_highlightChanged);
+    controller.selection.removeListener(_windowChanged);
     controller.detachViewport(this);
   }
 
@@ -315,6 +354,7 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
     final query = controller.highlightQuery.value;
     final flash = _flashState;
     final rowOfKey = <String, String>{};
+    final selection = controller.selection;
 
     // Albums: neighbours with the same group id share a row.
     final groups = <List<MessageKey>>[];
@@ -386,6 +426,9 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
           highlight: flashed ? _flashAnimation : null,
           highlightQuery: query,
           highlightReason: flashed ? flash.reason : null,
+          isSelected: selection.count > 0 &&
+              rowKeys.any((key) => selection.isSelected(key.id)),
+          selectionActive: selection.active,
           indexInWindow: i,
         ),
       );
@@ -528,11 +571,135 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
         ),
       ],
     );
-    if (widget.scrollbar) return scrollView;
-    return ScrollConfiguration(
-      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-      child: scrollView,
+    Widget list = scrollView;
+    if (!widget.scrollbar) {
+      list = ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+        child: list,
+      );
+    }
+    final dayChip = widget.floatingDayBuilder;
+    if (dayChip != null) {
+      list = NotificationListener<ScrollNotification>(
+        onNotification: (notification) {
+          if (notification is ScrollStartNotification) {
+            _scrolling.value = true;
+          } else if (notification is ScrollEndNotification) {
+            _scrolling.value = false;
+          }
+          return false;
+        },
+        child: list,
+      );
+    }
+    if (widget.keyboardShortcuts && _hasKeyboard) {
+      list = Focus(
+        focusNode: _focus,
+        onKeyEvent: _onKey,
+        child: Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: (_) => _focus.requestFocus(),
+          child: list,
+        ),
+      );
+    }
+    final button = widget.scrollDownButtonBuilder;
+    if (button == null && dayChip == null) return list;
+    return Stack(
+      children: [
+        Positioned.fill(child: list),
+        if (dayChip != null)
+          Positioned(
+            top: padding.top,
+            left: 0,
+            right: 0,
+            child: _FloatingDay(
+              day: controller.topVisibleDay,
+              scrolling: _scrolling,
+              builder: dayChip,
+              onTap: _dayTapped,
+            ),
+          ),
+        if (button != null)
+          PositionedDirectional(
+            end: 12,
+            bottom: 12 + padding.bottom,
+            child: VisibleWhen<bool>(
+              value: controller.showScrollDownButton,
+              shown: (show) => show,
+              builder: (context, _) => ValueListenableBuilder<int>(
+                valueListenable: controller.unreadCount,
+                builder: (context, unread, _) =>
+                    button(context, unread, controller.jumpToBottom),
+              ),
+            ),
+          ),
+      ],
     );
+  }
+
+  // -------------------------------------------------------------- keyboard
+
+  static bool get _hasKeyboard =>
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.macOS ||
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.linux;
+
+  /// PageUp / PageDown, Home / End and the arrow keys (§11.6).
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is KeyUpEvent || !_scroll.hasClients) {
+      return KeyEventResult.ignored;
+    }
+    final position = _scroll.anchored;
+    void by(double delta, {bool animated = false}) {
+      final target = (position.pixels + delta)
+          .clamp(position.minScrollExtent, position.maxScrollExtent);
+      if (animated) {
+        position.animateTo(
+          target,
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+        );
+      } else {
+        position.jumpTo(target);
+      }
+    }
+
+    final page = position.viewportDimension * 0.85;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowUp) {
+      by(-40);
+    } else if (key == LogicalKeyboardKey.arrowDown) {
+      by(40);
+    } else if (key == LogicalKeyboardKey.pageUp) {
+      by(-page, animated: true);
+    } else if (key == LogicalKeyboardKey.pageDown) {
+      by(page, animated: true);
+    } else if (key == LogicalKeyboardKey.end) {
+      _controller.jumpToBottom();
+    } else if (key == LogicalKeyboardKey.home) {
+      final keyboard = HardwareKeyboard.instance;
+      if (keyboard.isControlPressed || keyboard.isMetaPressed) {
+        // The very first message of the list.
+        _controller.jumpToDate(DateTime(1970));
+      } else {
+        // The oldest loaded message.
+        final keys = _controller.window.value.keys;
+        if (keys.isNotEmpty) {
+          _controller.jumpTo(
+            keys.first,
+            options: const JumpOptions(
+              alignment: JumpAlignment.top(),
+              highlight: JumpHighlight.none(),
+            ),
+          );
+        }
+      }
+    } else {
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
   }
 
   // ----------------------------------------------------- AnchoredScrollHost
@@ -547,6 +714,11 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
   RenderViewport? get _viewport {
     final object = _viewportKey.currentContext?.findRenderObject();
     return object is RenderViewport ? object : null;
+  }
+
+  void _dayTapped(DateTime day) {
+    widget.onDayTap?.call(day);
+    _controller.notifyDayTap(day);
   }
 
   // ------------------------------------------------- highlight and jumps
@@ -1154,11 +1326,9 @@ class _RowWidgetState<M> extends State<_RowWidget<M>>
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (header != null)
-            header(context, day!, () => view.onDayTap?.call(day)),
+          if (header != null) header(context, day!, () => host._dayTapped(day)),
           if (row.divider)
-            view.unreadDividerBuilder?.call(context) ??
-                const _DefaultUnreadDivider(),
+            view.unreadDividerBuilder?.call(context) ?? const UnreadDivider(),
           child,
         ],
       );
@@ -1189,7 +1359,11 @@ class _RowWidgetState<M> extends State<_RowWidget<M>>
     return _RowBoundary(
       row: row,
       registry: host._registry,
-      child: IgnorePointer(ignoring: row.removing, child: child),
+      // Screen readers go through the messages oldest to newest.
+      child: Semantics(
+        sortKey: OrdinalSortKey(row.keys.first.order.toDouble()),
+        child: IgnorePointer(ignoring: row.removing, child: child),
+      ),
     );
   }
 
@@ -1330,13 +1504,66 @@ class _EdgeRow extends StatelessWidget {
       );
 }
 
-class _DefaultUnreadDivider extends StatelessWidget {
-  const _DefaultUnreadDivider();
+/// The day chip that floats at the top while the list scrolls.
+class _FloatingDay extends StatefulWidget {
+  const _FloatingDay({
+    required this.day,
+    required this.scrolling,
+    required this.builder,
+    required this.onTap,
+  });
+
+  final ValueListenable<DateTime?> day;
+  final ValueListenable<bool> scrolling;
+  final DayHeaderBuilder builder;
+  final void Function(DateTime day) onTap;
 
   @override
-  Widget build(BuildContext context) => const Padding(
-        padding: EdgeInsets.symmetric(vertical: 6),
-        child: Center(child: Text('Unread messages')),
+  State<_FloatingDay> createState() => _FloatingDayState();
+}
+
+class _FloatingDayState extends State<_FloatingDay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _show;
+  Timer? _hide;
+
+  @override
+  void initState() {
+    super.initState();
+    _show = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 150),
+    );
+    widget.scrolling.addListener(_scrollingChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.scrolling.removeListener(_scrollingChanged);
+    _hide?.cancel();
+    _show.dispose();
+    super.dispose();
+  }
+
+  void _scrollingChanged() {
+    _hide?.cancel();
+    if (widget.scrolling.value) {
+      _show.forward();
+    } else {
+      // It stays for a second after the list stopped.
+      _hide = Timer(const Duration(seconds: 1), _show.reverse);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+        opacity: _show,
+        child: ValueListenableBuilder<DateTime?>(
+          valueListenable: widget.day,
+          builder: (context, day, _) => day == null
+              ? const SizedBox.shrink()
+              : widget.builder(context, day, () => widget.onTap(day)),
+        ),
       );
 }
 

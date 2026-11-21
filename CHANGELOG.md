@@ -2,6 +2,22 @@
 
 All packages in this repository share one version.
 
+## 0.1.0-dev.7 — milestone 6: selection, visibility, theme and widgets
+
+### steady_chat_list
+
+- `controller.selection` (`SelectionController`): toggle, shift-click range (`extendTo`), `selectRange`, `selectAllLoaded`, drag select, `SelectionPolicy`; survives paging; cleared by deletes. `MessageItemInfo.isSelected` / `selectionActive`.
+- Visibility: `onVisibleRangeChanged`, `onItemVisibility` (hidden, partly, mostly, fully), `onMessagesSeen`, `onItemDisposed`, `onPrefetch`, `onTopVisibleDayChanged`, `onDayTap`, with matching events; `visibleItems`, `topVisibleDay`, `ensureVisible`.
+- Default widgets: `ScrollDownButton` (badge 1–999, 1K, 7.2K, 1M; loading ring), `MentionButton`, `ReactionButton`, `MessageListButtons`, `DayHeader`, `UnreadDivider`, `VisibleWhen`, `SwipeToReply`; `formatUnreadCount`, `formatDayLabel`.
+- `MessageListTheme` and `MessageListThemeScope` (no Material dependency), light and dark defaults.
+- `MessageListView`: `scrollDownButtonBuilder`, `floatingDayBuilder` (chip that shows while scrolling), keyboard shortcuts on desktop and web, semantics order.
+- `SteadyChatList` shows a scroll-down button by default.
+- New dependency: `intl` (day labels).
+
+### Tests
+
+- Acceptance test 23. 162 tests in `steady_chat_list` (99.6% lines), 103 in the core (100%).
+
 ## 0.1.0-dev.6 — milestone 5: sending, incoming and deletes
 
 ### steady_chat_list

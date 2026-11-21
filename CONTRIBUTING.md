@@ -67,6 +67,7 @@ Benchmarks (run them when you touch the store, the controller or the view, and u
 - **Tests first.** Store and policy logic gets unit tests in the core; controller behavior gets headless tests with `FakeChatServer` and `FakeViewport`; anything visual gets a widget test.
 - **The core has no Flutter imports** and depends only on `meta`.
 - **No new dependencies** beyond `meta`, `collection`, `flutter`, `shared_preferences`, `intl`, `drift`, `drift_flutter` and `sqlite3_flutter_libs` without a reason in `DECISIONS.md`.
+- **No Material or Cupertino imports in the packages.** Use `package:flutter/widgets.dart`; `material.dart` is deprecated in new Flutter versions.
 - **Public API:** every public symbol has a dartdoc comment, and classes have a short example. Use `final class`, `sealed` and `@immutable`. No `dynamic`, no global singletons.
 - **Performance rules are requirements.** Don't rebuild the whole list for one message, don't copy the store per frame, don't add a `GlobalKey` per item.
 - **Never infer contiguity from ids.** Only a server page proves that no message is missing between two keys.

@@ -2,7 +2,7 @@ name: steady_chat_list_core
 description: >-
   Pure Dart core of steady_chat_list: sortable message keys, a segmented
   message store, paging and event models. No Flutter imports.
-version: 0.1.0-dev.6
+version: 0.1.0-dev.7
 repository: https://github.com/vfiruz97/steady_chat_list/tree/main/packages/steady_chat_list_core
 issue_tracker: https://github.com/vfiruz97/steady_chat_list/issues
 topics:

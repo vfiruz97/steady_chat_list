@@ -2,7 +2,7 @@
 
 A Flutter package that gives any chat app a Telegram-grade message list: it opens at the right place, pages unlimited history with a fixed number of widgets, and never jumps under the reader's eyes.
 
-**Status: in development** (not on pub.dev yet). Built so far: the core store, the controller, the no-jump view, the simple one-widget API, jumps with search navigation, optimistic sending and animated deletes. Next: selection and theming, the offline cache and the example app. Design decisions are in [DECISIONS.md](DECISIONS.md).
+**Status: in development** (not on pub.dev yet). Built so far: the core store, the controller, the no-jump view, the simple one-widget API, jumps with search navigation, optimistic sending, animated deletes, selection, visibility callbacks and themed default widgets. Next: the offline cache and the example app. Design decisions are in [DECISIONS.md](DECISIONS.md).
 
 It is made for conversations: chats, group chats, threads and comments, support chat inside any app, AI assistant chats, activity feeds. For product grids or settings lists use a plain `ListView`.
 

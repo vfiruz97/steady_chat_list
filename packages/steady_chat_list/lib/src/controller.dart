@@ -10,6 +10,7 @@ import 'events.dart';
 import 'item_info.dart';
 import 'jump.dart';
 import 'search.dart';
+import 'selection.dart';
 import 'viewport.dart';
 
 /// Runs [callback] once, at the start of the next frame.
@@ -137,6 +138,15 @@ class MessageListController<M> extends ChangeNotifier {
   // its client id after the ack), so its widget state survives.
   final Map<String, String> _stableIds = {};
 
+  // Visibility (§10.12).
+  VisibleRange? _visibleRange;
+  final Map<String, int> _visibility = {}; // id → threshold bucket
+  final Set<String> _seen = {};
+  Set<String> _windowIds = const {};
+  MessageKey? _prefetchedBefore;
+  MessageKey? _prefetchedAfter;
+  final ValueNotifier<DateTime?> _topVisibleDay = ValueNotifier(null);
+
   // Per-item change notifiers (one bubble rebuilds, not the list).
   final Map<String, _ItemNotifier> _items = {};
 
@@ -256,6 +266,32 @@ class MessageListController<M> extends ChangeNotifier {
   /// uses this.
   void reportDiagnostic(MessageListDiagnostic diagnostic) =>
       _diagnose(diagnostic);
+
+  /// Which messages are selected (§10.11).
+  late final SelectionController selection = SelectionController(
+    keysBetween: (from, to) =>
+        _shownStore?.keysBetween(from, to) ?? const <MessageKey>[],
+    loadedKeys: () => _shownStore?.keys ?? const <MessageKey>[],
+    keyOf: (id) => _shownStore?.keyOf(id),
+    isSelectable: (key) {
+      final message = messageOf(key);
+      final policy = policies.selection ?? SelectionPolicy<M>();
+      return message != null && policy.isSelectable(hub.adapter, message);
+    },
+  );
+
+  /// The items on screen: key, rectangle (global) and visible fraction.
+  ///
+  /// ```dart
+  /// final playing = controller.visibleItems
+  ///     .where((item) => item.visibleFraction > 0.5);
+  /// ```
+  List<VisibleItem> get visibleItems =>
+      List<VisibleItem>.unmodifiable(_metrics?.items ?? const <VisibleItem>[]);
+
+  /// Local midnight of the day of the topmost visible message (for a
+  /// floating day chip).
+  ValueListenable<DateTime?> get topVisibleDay => _topVisibleDay;
 
   /// The jump that is running, if any.
   ValueListenable<JumpState?> get jumpInProgress => _jumpState;
@@ -415,6 +451,8 @@ class MessageListController<M> extends ChangeNotifier {
       _unreadMentions,
       _unreadReactions,
       _currentPinned,
+      _topVisibleDay,
+      selection,
     ]) {
       notifier.dispose();
     }
@@ -551,6 +589,30 @@ class MessageListController<M> extends ChangeNotifier {
     _searches.add(navigator);
     return navigator;
   }
+
+  /// Scrolls just enough to make [key] fully visible; loads it when
+  /// needed. No flash.
+  ///
+  /// ```dart
+  /// await controller.ensureVisible(reaction.messageKey);
+  /// ```
+  Future<void> ensureVisible(
+    MessageKey key, {
+    JumpAlignment alignment = const JumpAlignment.minimal(),
+  }) async {
+    await _jump(
+      key: key,
+      options: JumpOptions(
+        alignment: alignment,
+        scroll: config.jump.scroll,
+        highlight: const JumpHighlight.none(),
+      ),
+    );
+  }
+
+  /// Reports that a day header or the floating day chip was tapped. The
+  /// built-in widgets call this; it reaches `onDayTap`.
+  void notifyDayTap(DateTime day) => _emit(DayTapped(_list, day));
 
   /// Stops marking the search term in items. The position is kept.
   void clearHighlightQuery() => _highlightQuery.value = null;
@@ -1092,6 +1154,7 @@ class MessageListController<M> extends ChangeNotifier {
     _metricsStale = false;
     _updateBottomState();
     _trackRead(metrics);
+    _trackVisibility(metrics);
     _updateNavigationState();
     _persistTimer?.cancel();
     _persistTimer = Timer(
@@ -1119,6 +1182,12 @@ class MessageListController<M> extends ChangeNotifier {
     _store = store;
     store.addListener(_onDelta);
     // A new visit: reading starts over.
+    _seen.clear();
+    _visibility.clear();
+    _visibleRange = null;
+    _prefetchedBefore = null;
+    _prefetchedAfter = null;
+    selection.clear();
     _highestRead = null;
     _sentRead = null;
     _announcedRead = null;
@@ -1487,6 +1556,18 @@ class MessageListController<M> extends ChangeNotifier {
     } else if (store.isKnownEmpty) {
       _phase.value = ListPhase.empty;
     }
+    // Items that left the window, and what lies just beyond its edges.
+    final ids = {for (final key in keys) key.id};
+    if (_windowIds.isNotEmpty) {
+      for (final id in _windowIds) {
+        if (ids.contains(id) || _stableIds.containsValue(id)) continue;
+        final key = store.keyOf(id) ?? MessageKey(order: 0, id: id);
+        _visibility.remove(id);
+        _emit(ItemDisposed(store.id, key));
+      }
+    }
+    _windowIds = ids;
+    _suggestPrefetch(store, keys);
     hub.protect(
       store.id,
       this,
@@ -1646,6 +1727,12 @@ class MessageListController<M> extends ChangeNotifier {
       for (final key in updated) {
         _items[key.id]?.changed();
       }
+    }
+    if (deleted.isNotEmpty || cleared.isNotEmpty) {
+      selection.forget([
+        for (final key in deleted) key.id,
+        for (final key in cleared) key.id,
+      ]);
     }
     if (deleted.isNotEmpty) {
       _emit(MessageRemoved(_list, deleted, RemoveCause.deleted));
@@ -2073,6 +2160,96 @@ class MessageListController<M> extends ChangeNotifier {
     }
   }
 
+  // ----------------------------------------------------------- visibility
+
+  static int _bucket(double fraction) => fraction <= 0
+      ? 0
+      : fraction < 0.5
+          ? 1
+          : fraction < 0.999
+              ? 2
+              : 3;
+
+  void _trackVisibility(ViewportMetrics metrics) {
+    final store = _shownStore;
+    if (store == null || !identical(store, _store)) return;
+    final items = metrics.items;
+    final list = store.id;
+
+    final range = items.isEmpty
+        ? null
+        : VisibleRange(
+            first: items.first.key,
+            last: items.last.key,
+            count: items.length,
+          );
+    if (range != _visibleRange) {
+      _visibleRange = range;
+      _emit(VisibleRangeChanged(list, range));
+    }
+
+    final current = <String>{};
+    final seen = <MessageKey>[];
+    for (final item in items) {
+      final id = item.key.id;
+      current.add(id);
+      final bucket = _bucket(item.visibleFraction);
+      if (_visibility[id] != bucket) {
+        _visibility[id] = bucket;
+        _emit(ItemVisibilityChanged(list, item.key, item.visibleFraction));
+      }
+      if (bucket >= 2 && _seen.add(id)) seen.add(item.key);
+    }
+    final hidden = <String>[
+      for (final entry in _visibility.entries)
+        if (entry.value != 0 && !current.contains(entry.key)) entry.key,
+    ];
+    for (final id in hidden) {
+      _visibility[id] = 0;
+      final key = store.keyOf(id);
+      if (key != null) _emit(ItemVisibilityChanged(list, key, 0));
+    }
+    if (seen.isNotEmpty) _emit(MessagesSeen(list, seen));
+
+    DateTime? day;
+    if (items.isNotEmpty) {
+      final message = messageOf(items.first.key);
+      if (message != null) {
+        final grouping = policies.grouping ?? GroupingPolicy<M>();
+        day = grouping.dayOf(hub.adapter, message);
+      }
+    }
+    if (_topVisibleDay.value != day) {
+      _topVisibleDay.value = day;
+      _emit(TopVisibleDayChanged(list, day));
+    }
+  }
+
+  /// Tells the app which messages come next on each side, once per edge.
+  void _suggestPrefetch(ListStore<M> store, List<MessageKey> keys) {
+    if (callbacks.onPrefetch == null && !_events.hasListener) return;
+    if (keys.isEmpty) return;
+    final upcoming = <M>[];
+    void add(Iterable<MessageKey> next) {
+      for (final key in next) {
+        final message = store.messageOf(key.id);
+        if (message != null) upcoming.add(message);
+      }
+    }
+
+    final first = keys.first;
+    final last = keys.last;
+    if (!(_prefetchedBefore?.isSamePosition(first) ?? false)) {
+      _prefetchedBefore = first;
+      add(store.keysBefore(first, 20));
+    }
+    if (!(_prefetchedAfter?.isSamePosition(last) ?? false)) {
+      _prefetchedAfter = last;
+      add(store.keysAfter(last, 20));
+    }
+    if (upcoming.isNotEmpty) _emit(PrefetchSuggested(store.id, upcoming));
+  }
+
   // -------------------------------------------------------------- reading
 
   void _trackRead(ViewportMetrics metrics) {
@@ -2321,6 +2498,27 @@ class MessageListController<M> extends ChangeNotifier {
       case CurrentPinnedChanged(:final list, :final key):
         final f = c.onCurrentPinnedChanged;
         if (f != null) _guard('onCurrentPinnedChanged', () => f(list, key));
+      case VisibleRangeChanged(:final list, :final range):
+        final f = c.onVisibleRangeChanged;
+        if (f != null) _guard('onVisibleRangeChanged', () => f(list, range));
+      case ItemVisibilityChanged(:final list, :final key, :final fraction):
+        final f = c.onItemVisibility;
+        if (f != null) _guard('onItemVisibility', () => f(list, key, fraction));
+      case MessagesSeen(:final list, :final keys):
+        final f = c.onMessagesSeen;
+        if (f != null) _guard('onMessagesSeen', () => f(list, keys));
+      case ItemDisposed(:final list, :final key):
+        final f = c.onItemDisposed;
+        if (f != null) _guard('onItemDisposed', () => f(list, key));
+      case PrefetchSuggested(:final list, :final messages):
+        final f = c.onPrefetch;
+        if (f != null) _guard('onPrefetch', () => f(list, messages.cast<M>()));
+      case TopVisibleDayChanged(:final list, :final day):
+        final f = c.onTopVisibleDayChanged;
+        if (f != null) _guard('onTopVisibleDayChanged', () => f(list, day));
+      case DayTapped(:final list, :final day):
+        final f = c.onDayTap;
+        if (f != null) _guard('onDayTap', () => f(list, day));
       case DiagnosticReported(:final diagnostic):
         final f = c.onDiagnostic;
         if (f != null) {

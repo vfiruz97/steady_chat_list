@@ -172,7 +172,7 @@ Its replacement does not exist in Flutter 3.24, the minimum version.
 **D53. App lifecycle.**
 `paused`, `hidden` and `detached` save the position with `SaveReason.appPaused`; on the web, hiding or closing the tab reports `hidden`, so no `dart:html` listener is needed. `SaveReason.pageHide` is reserved.
 
-**D54. Not in the view yet:** theming, floating day chip, geometry API, keyboard shortcuts, semantics order (6), debug overlay (8).
+**D54. Not in the view yet:** the debug overlay (milestone 8).
 
 **D55. The stress test compares frames where holding the anchor is possible.**
 A frame is skipped when the list is pinned, still settling, or within 700 px of an end of the content (deleting can then leave less content than the distance to the end, and the physics must move the list). At least 80% of the 600 frames per run are compared.
@@ -255,6 +255,33 @@ Every row is wrapped in the appear and remove transitions with constant animatio
 Events reach the store at once and the window once per frame. A window published in between (an appear mark ending, a page growing) compared itself with the store's newest key, concluded it had fallen behind and lost the bottom pin for good. Found by the 50 messages per second test.
 
 **D83. After deletes at a window edge the window stays in the reader's segment** even if the nearest remaining key is an orphan or belongs to another island.
+
+## Selection, visibility, theme and default widgets (§10.11, §10.12, §11.6, §11.7, §12)
+
+**D84. The theme does not depend on Material.**
+The specification asks for a `ThemeExtension`. `package:flutter/material.dart` is deprecated since Flutter 3.47 (Material moved to its own package), so a package that imports it would warn today and break later. `MessageListTheme` is a plain class provided by `MessageListThemeScope` (an `InheritedWidget`); without a scope it follows the platform brightness. Material apps can map their `ThemeData` to it in one place.
+
+**D85. The default buttons draw their own icons.**
+The chevron is painted and "@" / "♥" are text, so no icon font is required.
+
+**D86. Floating overlays are opt-in on `MessageListView` and on by default in `SteadyChatList`.**
+`scrollDownButtonBuilder` and `floatingDayBuilder` add overlays; `MessageListButtons` gives the three buttons to apps that place them themselves. `SteadyChatList` shows the default scroll-down button unless `scrollDownButton: false`.
+
+**D87. Day labels are English ("Today", "Yesterday") with `intl` dates.** `DayHeader(label:)` and `formatDayLabel(locale:)` are the localization hooks; the package ships no translations.
+
+**D88. Selection clears itself.** Deleted messages leave the selection, and selection mode ends when nothing is left, so "delete selected" is `controller.remove(selection.selectedIds.toList())`. Switching to another list clears it.
+
+**D89. `onMessagesSeen` fires when at least half of a message is visible**, once per message per visit. `onItemVisibility` fires when a message crosses hidden / partly / mostly / fully visible.
+
+**D90. Prefetch is suggested once per window edge**: up to 20 messages beyond each edge that are already in memory. Messages that are not loaded yet can't be suggested.
+
+**D91. Keyboard shortcuts work on desktop and web after the list was clicked.** The list takes focus on pointer down only on those platforms; on phones that would close the keyboard. Home goes to the oldest loaded message, Ctrl/Cmd+Home to the first message of the chat (a date jump to 1970), End to the bottom.
+
+**D92. `SwipeToReply` measures the angle from where the finger went down.** A horizontal drag recognizer only reports horizontal movement, so the 20° rule uses the raw pointer position at the moment the drag is recognized.
+
+**D93. Semantics order uses the message key.** Each row has an `OrdinalSortKey` with `key.order`, which is stable when the window changes.
+
+**D94. Not done from §11.6 / §11.7:** the iOS status-bar tap (it needs the list to be the primary scroll view of the route, which is the app's choice), announcing incoming messages and moving accessibility focus to a jump target (`SemanticsService.announce` changed between the supported Flutter versions; planned with the next SDK bump).
 
 ## Known limits
 

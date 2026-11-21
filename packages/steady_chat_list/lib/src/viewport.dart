@@ -31,6 +31,40 @@ final class VisibleItem {
   final double visibleFraction;
 }
 
+/// The messages on screen, from the first to the last.
+///
+/// ```dart
+/// onVisibleRangeChanged: (list, range) => overlay.reposition(),
+/// ```
+@immutable
+final class VisibleRange {
+  /// Creates a range.
+  const VisibleRange(
+      {required this.first, required this.last, required this.count});
+
+  /// The topmost visible message.
+  final MessageKey first;
+
+  /// The bottommost visible message.
+  final MessageKey last;
+
+  /// Number of visible messages.
+  final int count;
+
+  @override
+  bool operator ==(Object other) =>
+      other is VisibleRange &&
+      other.first.id == first.id &&
+      other.last.id == last.id &&
+      other.count == count;
+
+  @override
+  int get hashCode => Object.hash(first, last, count);
+
+  @override
+  String toString() => 'VisibleRange(${first.id}..${last.id}, $count)';
+}
+
 /// What the view reports to the controller after a layout or a scroll.
 ///
 /// The built-in view sends these. Tests and custom views can send them with
