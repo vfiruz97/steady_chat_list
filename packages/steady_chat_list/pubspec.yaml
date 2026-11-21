@@ -2,9 +2,14 @@ name: steady_chat_list
 description: >-
   A steady chat message list: opens at the right place, pages
   unlimited history with a fixed number of widgets, and never jumps.
-version: 0.1.0
+version: 0.1.1
 repository: https://github.com/vfiruz97/steady_chat_list/tree/main/packages/steady_chat_list
 issue_tracker: https://github.com/vfiruz97/steady_chat_list/issues
+screenshots:
+  - description: Scrolling and jumping through a chat of 10,000,000 messages.
+    path: screenshots/scrolling.gif
+  - description: The example app with the 10,000,000 messages demo open.
+    path: screenshots/chat.png
 topics:
   - chat
   - list

@@ -1,3 +1,7 @@
+## 0.1.1
+
+Documentation only.
+
 ## 0.1.0
 
 First release. `DriftMessageCache`, `SteadyCacheDatabase` (plain SQL schema, no code generation), `MessageCodec` and `JsonMessageCodec`.
