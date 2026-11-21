@@ -74,7 +74,7 @@ All packages in this repository share one version.
 
 - `insertLocal({id, build})`: optimistic sending. The list goes to the bottom, the message fades in; `LocalAcked` swaps it in place and keeps its widget state (also when acks arrive out of order); `LocalFailed` shows `SendState.failed`.
 - Appear animation for new messages (`appearDuration`, `appearTransitionBuilder`, `shouldAnimateInsert`, `MessageItemInfo.isJustAdded`).
-- Delete animation like Telegram: fade, shrink to 30% and slide toward the sender's side, then the row is removed in one step (`removeDuration`, `removeTransitionBuilder`, `shouldAnimateRemove`, `collapseRemovedRows`, `remove(ids, animate: false)`). Local, remote and batch deletes behave the same; a batch finishes together.
+- Delete animation: fade, shrink to 30% and slide toward the sender's side, then the row is removed in one step (`removeDuration`, `removeTransitionBuilder`, `shouldAnimateRemove`, `collapseRemovedRows`, `remove(ids, animate: false)`). Local, remote and batch deletes behave the same; a batch finishes together.
 - `stableIdOf`, `nextLocalKey`; `MessageWindow.removing` and `justAdded`; `ItemTransitionBuilder`.
 - Fixed: a list at the bottom could lose its pin when messages arrived faster than frames.
 - Fixed: the unread divider moves at once when the first unread message is deleted.
@@ -164,7 +164,7 @@ All packages in this repository share one version.
 
 - `MessageListHub`: owns the store and the event subscriptions (one per list, released 30 s after the last controller), shares identical in-flight page requests, drops cancelled results, protects every controller's window from eviction.
 - `ViewportStore` and `InMemoryViewportStore` for persisted positions.
-- Policies with Telegram-like defaults: `OpenPolicy`, `ReadPolicy`, `AnchorPolicy`, `GroupingPolicy`, `UnreadDividerPolicy`, `RetryPolicy`, `WindowPolicy`, `BottomStickPolicy`, `SelectionPolicy`, `PinnedPolicy`, bundled in `MessageListPolicies`.
+- Policies with defaults: `OpenPolicy`, `ReadPolicy`, `AnchorPolicy`, `GroupingPolicy`, `UnreadDividerPolicy`, `RetryPolicy`, `WindowPolicy`, `BottomStickPolicy`, `SelectionPolicy`, `PinnedPolicy`, bundled in `MessageListPolicies`.
 - `OpenTarget`, `OpenResolution`, `OpenPlan`.
 - Store: a page that proves keys beyond a segment's end without claiming the end clears the stale end flag.
 

@@ -350,8 +350,8 @@ class RetryPolicy {
       attempt < delays.length ? delays[attempt] : null;
 }
 
-/// Decides page sizes, the window size and when to load more. Defaults
-/// follow Telegram: 40 / 20 / 80 / 1500 px (§10.2).
+/// Decides page sizes, the window size and when to load more. Defaults:
+/// 40 / 20 / 80 / 1500 px (§10.2).
 ///
 /// ```dart
 /// const WindowPolicy(pageSize: 30, windowSize: 60);
@@ -473,7 +473,7 @@ class PinnedPolicy<M> {
 /// ```
 @immutable
 final class MessageListPolicies<M> {
-  /// Creates a set of policies; everything defaults to Telegram behavior.
+  /// Creates a set of policies; each one has a default.
   const MessageListPolicies({
     this.open = const OpenPolicy(),
     this.read = const ReadPolicy(),

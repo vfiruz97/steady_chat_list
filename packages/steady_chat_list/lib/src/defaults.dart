@@ -156,8 +156,8 @@ class DefaultErrorState extends StatelessWidget {
   }
 }
 
-/// Flashes a message after a jump landed on it, like Telegram: a tinted
-/// background that fades out. Wrap the bubble (or the whole row) with it.
+/// Flashes a message after a jump landed on it: a tinted background that
+/// fades out. Wrap the bubble (or the whole row) with it.
 ///
 /// ```dart
 /// itemBuilder: (context, message, info) => JumpHighlightBackground(

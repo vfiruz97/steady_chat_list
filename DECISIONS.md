@@ -179,7 +179,7 @@ A frame is skipped when the list is pinned, still settling, or within 700 px of 
 
 ## Simple API (added on the owner's request, not in the specification)
 
-**D56. The package must be easy for small apps, not only for Telegram-size ones.**
+**D56. The package must be easy for small apps, not only for very large ones.**
 The owner's goal is a list that fits any app with a conversation. The specification only describes the full hub / controller / source setup, so a layer was added on top without changing the engine.
 
 **D57. `SteadyChatList`: one widget with three constructors.**
@@ -205,7 +205,7 @@ Before, it was stored as an orphan and never shown. This matters for list and st
 ## Jumps and search (§10.4, §10.5, §10.10)
 
 **D64. A jump outside the window swaps the window; the extra "current anchor message" is not kept.**
-§10.4 builds the new window as "[current anchor message] + keys around the target". Telegram needs that for its DOM; here the swap happens in one frame with fresh slivers, the first frame already shows content one viewport before the target, and the rest is animated. Keeping one stray old message at the edge would only add a visible artifact.
+§10.4 builds the new window as "[current anchor message] + keys around the target". A web client needs that for its DOM; here the swap happens in one frame with fresh slivers, the first frame already shows content one viewport before the target, and the rest is animated. Keeping one stray old message at the edge would only add a visible artifact.
 
 **D65. A jump inside the window scrolls only when the target is laid out and has room.**
 If the target is in the window but not built (far away), or sits so close to the window edge that it could not be centered, the window is rebuilt around it (from memory, or with one `around` fetch). Otherwise the jump would stop early at the end of the loaded content.

@@ -261,9 +261,7 @@ void main() {
     await h.dispose();
   });
 
-  testWidgets(
-      'a delete above the viewport moves nothing (better than '
-      'Telegram)', (tester) async {
+  testWidgets('a delete above the viewport moves nothing', (tester) async {
     final h = ListHarness(tester);
     h.controller.open();
     await h.pump();

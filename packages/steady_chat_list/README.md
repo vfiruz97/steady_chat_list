@@ -1,6 +1,6 @@
 # steady_chat_list
 
-A Flutter package that gives any chat app a Telegram-grade message list: it opens at the right place, pages unlimited history with a fixed number of widgets, and never jumps under the reader's eyes.
+A Flutter package that gives any chat app a steady message list: it opens at the right place, pages unlimited history with a fixed number of widgets, and never jumps under the reader's eyes.
 
 **Status: pre-release** (`0.1.0-dev`, not on pub.dev yet). Everything described here is implemented and tested; the API may still change before 1.0. The [example app](https://github.com/vfiruz97/steady_chat_list/tree/main/example) shows every feature, and the design decisions are in [DECISIONS.md](https://github.com/vfiruz97/steady_chat_list/blob/main/DECISIONS.md).
 

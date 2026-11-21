@@ -129,7 +129,7 @@ class JumpOptions {
 /// const MessageListConfig(reselectBehavior: ReselectBehavior.none);
 /// ```
 enum ReselectBehavior {
-  /// Jump to the newest message (Telegram).
+  /// Jump to the newest message (the default).
   jumpToBottom,
 
   /// Scroll to the oldest loaded message.

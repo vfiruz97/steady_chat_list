@@ -115,9 +115,8 @@ class MessageListView<M> extends StatefulWidget {
   /// goes 0 → 1. Default: a fade-in.
   final ItemTransitionBuilder? appearTransitionBuilder;
 
-  /// Animates a deleted message out; the animation goes 0 → 1. Default,
-  /// like Telegram: fade out, shrink to 30% and slide toward the sender's
-  /// side.
+  /// Animates a deleted message out; the animation goes 0 → 1. Default:
+  /// fade out, shrink to 30% and slide toward the sender's side.
   final ItemTransitionBuilder? removeTransitionBuilder;
 
   /// Builds a scroll-to-bottom button that floats over the bottom end
@@ -1407,7 +1406,7 @@ class _RowWidgetState<M> extends State<_RowWidget<M>>
   ) =>
       FadeTransition(opacity: animation, child: child);
 
-  /// Telegram's delete: fade to 0, shrink to 0.3 and slide toward the
+  /// The default delete: fade to 0, shrink to 0.3 and slide toward the
   /// sender's side (mirrored in right-to-left layouts).
   Widget _defaultRemove(
     BuildContext context,

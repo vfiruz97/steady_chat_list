@@ -2,8 +2,8 @@ import 'package:flutter/foundation.dart';
 
 import 'jump.dart';
 
-/// Tunable numbers of a message list. The defaults are the values measured
-/// in Telegram (SPEC §2, §9).
+/// Tunable numbers of a message list. The defaults follow what Telegram's
+/// apps do, which is a good starting point for most chats.
 ///
 /// ```dart
 /// const MessageListConfig(pageSize: 30, windowSize: 60);
@@ -103,6 +103,6 @@ class MessageListConfig {
   final Duration removeDuration;
 
   /// Whether the space of a deleted row closes with an animation (another
-  /// [removeDuration]) instead of in one step (Telegram).
+  /// [removeDuration]) instead of in one step.
   final bool collapseRemovedRows;
 }

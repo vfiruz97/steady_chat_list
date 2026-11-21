@@ -1,6 +1,6 @@
 name: steady_chat_list
 description: >-
-  A Telegram-grade chat message list: opens at the right place, pages
+  A steady chat message list: opens at the right place, pages
   unlimited history with a fixed number of widgets, and never jumps.
 version: 0.1.0-dev.9
 repository: https://github.com/vfiruz97/steady_chat_list/tree/main/packages/steady_chat_list

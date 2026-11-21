@@ -1,4 +1,4 @@
-/// A Telegram-grade chat message list for Flutter.
+/// A steady chat message list for Flutter.
 ///
 /// ```dart
 /// import 'package:steady_chat_list/steady_chat_list.dart';
