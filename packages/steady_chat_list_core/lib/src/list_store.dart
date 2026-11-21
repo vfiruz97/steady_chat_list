@@ -196,6 +196,7 @@ final class ListStore<M> {
   /// With [reconcile], confirmed messages that are stored inside the range
   /// of the returned items but are missing from them are removed: the
   /// server no longer has them (a delete that was missed while offline).
+  /// The anchor of an `around` page belongs to that range.
   StoreDelta applyPage(
     PageRequest request,
     PageResult<M> result, {
@@ -214,13 +215,31 @@ final class ListStore<M> {
         widen(adapter.keyOf(item));
         _upsert(item, d, place: false);
       }
-      if (reconcile && lo != null) {
+      if (reconcile) {
+        // The range the page speaks for: its items, and for an `around`
+        // page its anchor too (a page around a deleted message does not
+        // contain it). An empty page that reached both ends says the
+        // list is empty.
+        var from = lo;
+        var to = hi;
+        final around = request.anchor;
+        if (request.direction == PageDirection.around && around != null) {
+          if (from == null || around < from) from = around;
+          if (to == null || around > to) to = around;
+        }
+        final all = result.items.isEmpty &&
+            result.reachedOldest &&
+            (result.reachedNewest || request.direction == PageDirection.latest);
         final returned = {
           for (final item in result.items) adapter.keyOf(item).id,
         };
         final gone = <String>[
-          for (final key in keysBetween(lo!, hi!))
-            if (!key.isLocal && !returned.contains(key.id)) key.id,
+          if (all)
+            for (final key in keys)
+              if (!key.isLocal) key.id,
+          if (!all && from != null)
+            for (final key in keysBetween(from, to!))
+              if (!key.isLocal && !returned.contains(key.id)) key.id,
         ];
         for (final id in gone) {
           _delete(id, d);

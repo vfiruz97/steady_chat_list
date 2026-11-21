@@ -1277,6 +1277,7 @@ class MessageListController<M> extends ChangeNotifier {
       () => _saveNow(SaveReason.scrollIdle),
     );
     _maybePage();
+    _maybeVerify();
   }
 
   // ----------------------------------------------------------------- open
@@ -1286,6 +1287,9 @@ class MessageListController<M> extends ChangeNotifier {
   int _newGeneration() {
     _token.cancel();
     _token = CancellationToken();
+    _verifying = false;
+    _verifyTried = null;
+    _verifyFailed = false;
     _edgeBusy.clear();
     _edgeError.clear();
     return ++_generation;
@@ -2244,6 +2248,7 @@ class MessageListController<M> extends ChangeNotifier {
       try {
         final outcome = await hub.fetch(request, reconcile: reconcile);
         if (_stale(generation) || !outcome.applied) throw const _Superseded();
+        _verifyFailed = false;
         _emit(
           PageLoaded(
             request.list,
@@ -2265,6 +2270,45 @@ class MessageListController<M> extends ChangeNotifier {
         if (_stale(generation)) throw const _Superseded();
       }
     }
+  }
+
+  bool _verifying = false;
+  bool _verifyFailed = false;
+  String? _verifyTried;
+
+  /// Messages read from the cache may have been deleted or edited on the
+  /// server meanwhile: when one comes on screen, the page around it is
+  /// fetched and reconciled. The viewport does not move.
+  void _maybeVerify() {
+    final metrics = _metrics;
+    if (_verifying || _verifyFailed || metrics == null) return;
+    if (metrics.items.isEmpty || !identical(_store, _shownStore)) return;
+    MessageKey? stale;
+    for (final key in [metrics.items.first.key, metrics.items.last.key]) {
+      if (hub.isUnverified(_list, key)) {
+        stale = key;
+        break;
+      }
+    }
+    // The same message is not asked for twice: a source that does not
+    // answer for it must not be asked on every frame.
+    if (stale == null || stale.id == _verifyTried) return;
+    _verifyTried = stale.id;
+    _verifying = true;
+    final generation = _generation;
+    _fetchQuietly(
+      generation,
+      PageDirection.around,
+      stale,
+      _windowPolicy.pageSize,
+      reconcile: true,
+    ).then((loaded) {
+      if (_stale(generation)) return;
+      _verifying = false;
+      // Offline: wait for a page that loads, a reopen or invalidate().
+      _verifyFailed = !loaded;
+      if (loaded) _maybeVerify();
+    });
   }
 
   /// A fetch whose failure is not shown at an edge. Returns whether a page

@@ -1,3 +1,7 @@
+## 0.1.3
+
+No changes; released with `steady_chat_list_core` 0.1.3.
+
 ## 0.1.2
 
 Documentation only, with `steady_chat_list_core` 0.1.2.

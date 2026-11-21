@@ -185,6 +185,104 @@ void main() {
       hub.dispose();
     });
 
+    test('cached messages are unverified until a page confirms them', () async {
+      final hub = newHub();
+      hub.attach(chat);
+      await hub.fetch(req(PageDirection.latest)); // 810..1000
+      expect(hub.isUnverified(chat, k(900)), isFalse, reason: 'fetched');
+      await turn();
+      hub.dispose();
+
+      // Deleted and edited on the server while the app was closed.
+      server.byOrder.remove(900);
+      server.byOrder[910] = const Msg(910).bump();
+      final restarted = newHub();
+      await restarted.hydrate(chat);
+      final store = restarted.attach(chat);
+      expect(store.contains('m900'), isTrue, reason: 'as cached');
+      expect(restarted.isUnverified(chat, k(900)), isTrue);
+      expect(restarted.isUnverified(chat, k(5000)), isFalse);
+      expect(restarted.isUnverified(const ListId('x'), k(900)), isFalse);
+
+      // Any page is reconciled now: around the deleted message.
+      final outcome = await restarted.fetch(
+        req(PageDirection.around, anchor: 900, limit: 6),
+      );
+      expect(orders(outcome.delta.removed), [900]);
+      expect(store.contains('m900'), isFalse);
+      expect(store.messageOf('m910')!.rev, 1);
+      expect(restarted.isUnverified(chat, k(900)), isFalse);
+      expect(restarted.isUnverified(chat, k(920)), isFalse);
+      expect(restarted.isUnverified(chat, k(820)), isTrue, reason: 'below');
+      expect(restarted.isUnverified(chat, k(990)), isTrue, reason: 'above');
+
+      // A page outside what is left changes nothing.
+      server.seed([2000, 2010]);
+      await restarted.fetch(req(PageDirection.newer, anchor: 1000, limit: 5));
+      expect(restarted.isUnverified(chat, k(820)), isTrue);
+
+      // The rest is confirmed by a page that covers it.
+      await restarted.fetch(req(PageDirection.latest, limit: 40));
+      expect(restarted.isUnverified(chat, k(820)), isFalse);
+      expect(restarted.isUnverified(chat, k(990)), isFalse);
+      await turn();
+      await turn();
+
+      // And the cache was corrected.
+      source.offline = true;
+      final third = newHub();
+      await third.hydrate(chat);
+      expect(third.attach(chat).contains('m900'), isFalse);
+      restarted.dispose();
+      third.dispose();
+    });
+
+    test('a chat cleared on the server is emptied by the first page', () async {
+      final hub = newHub();
+      hub.attach(chat);
+      await hub.fetch(req(PageDirection.latest));
+      await turn();
+      hub.dispose();
+
+      server.byOrder.clear();
+      final restarted = newHub();
+      await restarted.hydrate(chat);
+      final store = restarted.attach(chat);
+      expect(store.length, 20);
+      await restarted.fetch(req(PageDirection.latest));
+      expect(store.isEmpty, isTrue);
+      expect(restarted.isUnverified(chat, k(900)), isFalse);
+      restarted.dispose();
+    });
+
+    test('reset forgets what was unverified', () async {
+      final hub = newHub();
+      hub.attach(chat);
+      await hub.fetch(req(PageDirection.latest));
+      await turn();
+      hub.dispose();
+      final restarted = newHub();
+      await restarted.hydrate(chat);
+      expect(restarted.isUnverified(chat, k(900)), isTrue);
+      restarted.reset(chat);
+      expect(restarted.isUnverified(chat, k(900)), isFalse);
+      restarted.dispose();
+    });
+
+    test('reconcile around a deleted first message removes it', () async {
+      final hub = newHub();
+      final store = hub.attach(chat);
+      await hub.fetch(req(PageDirection.older, anchor: 60)); // 10..50
+      server.byOrder.remove(10);
+      await hub.fetch(
+        req(PageDirection.around, anchor: 10, limit: 4),
+        reconcile: true,
+      );
+      expect(store.contains('m10'), isFalse);
+      expect(store.contains('m20'), isTrue);
+      hub.dispose();
+    });
+
     test('reset forgets the list in memory and in the cache', () async {
       final hub = newHub();
       final store = hub.attach(chat);

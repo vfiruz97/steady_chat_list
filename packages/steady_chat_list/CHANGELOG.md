@@ -1,3 +1,7 @@
+## 0.1.3
+
+- **Fixed:** with a cache, messages deleted or edited on the server while the app was closed stayed on screen until the app called `invalidate()`. They are now checked against the server when they come on screen and corrected without moving the viewport.
+
 ## 0.1.2
 
 Documentation only, with `steady_chat_list_core` 0.1.2.

@@ -1,3 +1,8 @@
+## 0.1.3
+
+- **Fixed:** messages read from the cache that were deleted or edited on the server meanwhile are corrected by the next page that covers them. `MessageListHub.isUnverified`.
+- **Fixed:** a reconciled `around` page also removes its anchor when the server no longer has it; an empty page that reached both ends empties the list.
+
 ## 0.1.2
 
 - A runnable `example/example.dart`.

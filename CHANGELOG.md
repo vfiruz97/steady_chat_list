@@ -2,6 +2,11 @@
 
 All packages in this repository share one version.
 
+## 0.1.3
+
+- **Fixed:** with a cache, messages deleted or edited on the server while the app was closed stayed on screen as cached until the app called `invalidate()`. Cached messages are now checked against the server when they come on screen and corrected without moving the viewport; the cache is corrected too. `MessageListHub.isUnverified`.
+- **Fixed:** refreshing around a message that was deleted on the server removes it also when it was the first or last message loaded; a chat cleared on the server is emptied.
+
 ## 0.1.2
 
 - `steady_chat_list_core`: a runnable `example/example.dart`; the README sample no longer uses `const PageRequest`, which does not compile.

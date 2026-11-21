@@ -2,6 +2,7 @@
 // invalidate, reset), the persistent position store, and two views on one
 // list (SPEC §18 test 24).
 // ignore_for_file: unawaited_futures
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -56,6 +57,175 @@ void main() {
       await tester.pumpWidget(h.build());
       expect(h.yOf(anchor), isNotNull, reason: 'first frame, no loading');
       await h.dispose();
+    });
+  });
+
+  group('deleted on the server while the app was closed', () {
+    testWidgets(
+        'messages around the saved position: shown from the cache, then '
+        'removed by the refresh without moving the rest', (tester) async {
+      final cache = InMemoryMessageCache<Msg>(adapter: const MsgAdapter());
+      final h = ListHarness(tester, cache: cache);
+      h.controller.open();
+      await h.pump();
+      await h.scrollBy(-913);
+      await h.settle(const Duration(milliseconds: 100));
+      final seen = h.visible;
+      final anchor = seen.first;
+      final gone = [seen[2], seen[3]];
+      await h.dispose();
+      h.hub.dispose();
+
+      // While the app is closed, two messages that were on screen are
+      // deleted on the server.
+      h.server.deleted.addAll(gone);
+      h.hub = h.newHub();
+      h.controller = h.newController();
+      OpenResolution? how;
+      h.controller.open().then((r) => how = r);
+      await tester.pumpWidget(h.build());
+      await tester.pump(); // the cache answered
+      expect(how, OpenResolution.snapshot);
+      final y = h.yOf(anchor)!;
+
+      await h.pump(); // the refresh from the server
+      final store = h.hub.attach(chat);
+      for (final order in gone) {
+        expect(h.yOf(order), isNull, reason: '$order is still shown');
+        expect(store.keyOf('m$order'), isNull, reason: '$order is in memory');
+      }
+      expect(h.yOf(anchor), moreOrLessEquals(y, epsilon: 1));
+      expect(h.controller.phase.value, ListPhase.ready);
+
+      // The cache forgot them too: the next restart does not show them.
+      await h.dispose();
+      h.hub.dispose();
+      h.server.failNextFetches = 1000;
+      h.hub = h.newHub();
+      h.controller = h.newController()..open();
+      await tester.pumpWidget(h.build());
+      await tester.pump();
+      for (final order in gone) {
+        expect(h.yOf(order), isNull, reason: '$order came back from cache');
+      }
+      expect(h.yOf(anchor), isNotNull);
+      await h.dispose();
+    });
+
+    testWidgets('the anchor and everything on screen: opens at the nearest',
+        (tester) async {
+      final cache = InMemoryMessageCache<Msg>(adapter: const MsgAdapter());
+      final h = ListHarness(tester, cache: cache);
+      h.controller.open();
+      await h.pump();
+      await h.scrollBy(-913);
+      await h.settle(const Duration(milliseconds: 100));
+      final seen = h.visible;
+      await h.dispose();
+      h.hub.dispose();
+
+      h.server.deleted.addAll(seen);
+      h.hub = h.newHub();
+      h.controller = h.newController()..open();
+      await tester.pumpWidget(h.build());
+      await h.pump();
+      final store = h.hub.attach(chat);
+      for (final order in seen) {
+        expect(h.yOf(order), isNull, reason: '$order is still shown');
+        expect(store.keyOf('m$order'), isNull, reason: '$order is in memory');
+      }
+      expect(h.controller.phase.value, ListPhase.ready);
+      final now = h.visible;
+      expect(now, isNotEmpty);
+      // Still at the same place in the history, not at the bottom.
+      expect(now.first, lessThan(seen.last + 200));
+      expect(now.last, greaterThan(seen.first - 200));
+      await h.dispose();
+    });
+  });
+
+  group('cached messages are checked against the server', () {
+    Env cached(FakeAsync async) => Env(
+          async,
+          cache: InMemoryMessageCache<Msg>(adapter: const MsgAdapter()),
+        );
+
+    /// Opens, scrolls up through [pages] pages and "closes the app".
+    FakeViewport<Msg> restart(Env env, {int pages = 0, double back = 0}) {
+      final first = env.controller()..open();
+      final view = FakeViewport(first);
+      env.settle();
+      for (var i = 0; i < pages; i++) {
+        view.scrollToTop();
+        env.settle();
+      }
+      if (back != 0) {
+        view.scrollBy(back);
+        env.settle();
+      }
+      env.settle(const Duration(seconds: 2)); // the position is saved
+      view.dispose();
+      first.dispose();
+      env.hub.dispose();
+      env.hub = env.newHub();
+      env.server.requests.clear();
+      return view;
+    }
+
+    test('offline: asked once, not on every frame; invalidate asks again', () {
+      run(env: cached, (env) {
+        final before = restart(env, pages: 2, back: 400);
+        final gone = before.visibleOrders[1];
+        env.server.deleted.add(gone);
+        env.server.failNextFetches = 1000;
+
+        final controller = env.controller()..open();
+        final view = FakeViewport(controller);
+        env.settle(const Duration(seconds: 30));
+        int asked() => env.server.requests
+            .where((r) => r.direction == PageDirection.around)
+            .length;
+        // One attempt with its retries (0.5, 1, 2 and 4 s).
+        expect(asked(), 5);
+        expect(view.visibleOrders, contains(gone), reason: 'as cached');
+        view.scrollBy(-60);
+        env.settle(const Duration(seconds: 30));
+        view.scrollBy(60);
+        env.settle(const Duration(seconds: 30));
+        expect(asked(), 5, reason: 'no more attempts while offline');
+
+        // Back online.
+        env.server.failNextFetches = 0;
+        controller.invalidate();
+        env.settle();
+        expect(view.visibleOrders, isNot(contains(gone)));
+        expect(env.hub.attach(chat).keyOf('m$gone'), isNull);
+      });
+    });
+
+    test('scrolling further into cached history checks that page too', () {
+      run(env: cached, (env) {
+        final before = restart(env, pages: 3);
+        final top = before.visibleOrders.first;
+        // Saved near the top of what is cached; far below it, a message
+        // is deleted while the app is closed.
+        final gone = top + 600;
+        env.server.deleted.add(gone);
+
+        final controller = env.controller()..open();
+        final view = FakeViewport(controller);
+        env.settle();
+        final store = env.hub.attach(chat);
+        expect(env.hub.isUnverified(chat, k(top)), isFalse);
+        expect(store.keyOf('m$gone'), isNotNull, reason: 'not on screen yet');
+
+        for (var i = 0; i < 20 && store.keyOf('m$gone') != null; i++) {
+          view.scrollBy(300);
+          env.settle();
+        }
+        expect(store.keyOf('m$gone'), isNull);
+        expect(view.visibleOrders, isNot(contains(gone)));
+      });
     });
   });
 

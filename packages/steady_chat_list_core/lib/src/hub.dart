@@ -200,6 +200,10 @@ final class MessageListHub<M> {
   StreamSubscription<CacheChange>? _cacheChanges;
   final Map<ListId, Future<void>> _hydrations = {};
   final Set<ListId> _hydrated = {};
+
+  /// Per list read from the cache: the key ranges no page from the source
+  /// has confirmed yet.
+  final Map<ListId, List<(MessageKey, MessageKey)>> _unverified = {};
   final Map<ListId, ViewportSnapshot> _cachedSnapshots = {};
   final List<ListEvent<M>> _unsavedEvents = [];
   bool _evicted = false;
@@ -254,12 +258,56 @@ final class MessageListHub<M> {
           cached.segments,
           readState: cached.readState,
         );
+        final ranges = [
+          for (final segment in listStore.segments)
+            (segment.first, segment.last),
+        ];
+        if (ranges.isNotEmpty) _unverified[list] = ranges;
       }
     } catch (error, stackTrace) {
       onError?.call(error, stackTrace); // the list loads from the source
     } finally {
       _hydrated.add(list);
       unawaited(_hydrations.remove(list));
+    }
+  }
+
+  /// Whether [key] of [list] was read from the cache and no page from the
+  /// source has confirmed it since: it may have been deleted or edited on
+  /// the server meanwhile. Pages fetched for such a list are reconciled,
+  /// and the controller fetches the page around an unverified message
+  /// when it comes on screen.
+  ///
+  /// ```dart
+  /// if (hub.isUnverified(list, key)) print('still as cached');
+  /// ```
+  bool isUnverified(ListId list, MessageKey key) {
+    final ranges = _unverified[list];
+    if (ranges == null) return false;
+    for (final (first, last) in ranges) {
+      if (key >= first && key <= last) return true;
+    }
+    return false;
+  }
+
+  /// A page from the source confirmed everything from [first] to [last].
+  void _verified(ListId list, MessageKey first, MessageKey last) {
+    final ranges = _unverified[list];
+    if (ranges == null) return;
+    final rest = <(MessageKey, MessageKey)>[];
+    for (final (a, b) in ranges) {
+      if (last < a || first > b) {
+        rest.add((a, b));
+        continue;
+      }
+      // The borders stay unverified only when something lies beyond them.
+      if (a < first) rest.add((a, first));
+      if (b > last) rest.add((last, b));
+    }
+    if (rest.isEmpty) {
+      _unverified.remove(list);
+    } else {
+      _unverified[list] = rest;
     }
   }
 
@@ -288,6 +336,7 @@ final class MessageListHub<M> {
   /// Forgets [list] in memory and in the cache.
   StoreDelta reset(ListId list) {
     _cachedSnapshots.remove(list);
+    _unverified.remove(list);
     final cache = this.cache;
     if (cache != null) _write(() => cache.clear(list));
     return store.peek(list)?.reset() ?? StoreDelta(list: list);
@@ -430,6 +479,8 @@ final class MessageListHub<M> {
   /// With [reconcile], stored messages the server no longer returns inside
   /// the page are removed (used when refreshing after a reconnect).
   Future<PageOutcome<M>> fetch(PageRequest request, {bool reconcile = false}) {
+    // What came from the cache is checked against every page.
+    reconcile = reconcile || _unverified.containsKey(request.list);
     final anchor = request.anchor;
     final signature = '${request.list.storageKey}|${request.direction.name}|'
         '${anchor?.order}:${anchor?.localSeq}:${anchor?.id}|'
@@ -460,6 +511,7 @@ final class MessageListHub<M> {
       if (!dropped) {
         final listStore = store.list(request.list);
         delta = listStore.applyPage(sent, result, reconcile: reconcile);
+        if (reconcile) _confirm(sent, result);
         final cache = this.cache;
         if (cache != null) {
           final segments = listStore.segments.toList();
@@ -485,6 +537,31 @@ final class MessageListHub<M> {
       );
     }).whenComplete(() => _flights.remove(signature));
     return flight.future;
+  }
+
+  void _confirm(PageRequest request, PageResult<M> result) {
+    if (!_unverified.containsKey(request.list)) return;
+    if (result.items.isEmpty &&
+        result.reachedOldest &&
+        (result.reachedNewest || request.direction == PageDirection.latest)) {
+      _unverified.remove(request.list);
+      return;
+    }
+    MessageKey? first;
+    MessageKey? last;
+    void widen(MessageKey key) {
+      if (first == null || key < first!) first = key;
+      if (last == null || key > last!) last = key;
+    }
+
+    for (final item in result.items) {
+      widen(adapter.keyOf(item));
+    }
+    final anchor = request.anchor;
+    if (request.direction == PageDirection.around && anchor != null) {
+      widen(anchor);
+    }
+    if (first != null) _verified(request.list, first!, last!);
   }
 
   /// Applies an event to the store of its list. Events for lists that are
