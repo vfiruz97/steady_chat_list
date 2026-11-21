@@ -8,6 +8,7 @@
 /// ```
 library;
 
+export 'src/cache.dart';
 export 'src/hub.dart';
 export 'src/jump.dart';
 export 'src/list_event.dart';

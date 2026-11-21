@@ -192,7 +192,15 @@ final class ListStore<M> {
   /// ```dart
   /// final delta = store.applyPage(request, await source.fetch(request));
   /// ```
-  StoreDelta applyPage(PageRequest request, PageResult<M> result) {
+  ///
+  /// With [reconcile], confirmed messages that are stored inside the range
+  /// of the returned items but are missing from them are removed: the
+  /// server no longer has them (a delete that was missed while offline).
+  StoreDelta applyPage(
+    PageRequest request,
+    PageResult<M> result, {
+    bool reconcile = false,
+  }) {
     assert(request.list == id, 'Page for ${request.list} applied to $id');
     return _mutate((d) {
       MessageKey? lo;
@@ -205,6 +213,18 @@ final class ListStore<M> {
       for (final item in result.items) {
         widen(adapter.keyOf(item));
         _upsert(item, d, place: false);
+      }
+      if (reconcile && lo != null) {
+        final returned = {
+          for (final item in result.items) adapter.keyOf(item).id,
+        };
+        final gone = <String>[
+          for (final key in keysBetween(lo!, hi!))
+            if (!key.isLocal && !returned.contains(key.id)) key.id,
+        ];
+        for (final id in gone) {
+          _delete(id, d);
+        }
       }
       final direction = request.direction;
       final anchor = request.anchor;
@@ -299,6 +319,70 @@ final class ListStore<M> {
       }
     });
   }
+
+  /// Merges what a cache holds into the store: the messages, the segments
+  /// the cache proved earlier, and the read state. Segments are cut down to
+  /// the messages that were actually given.
+  ///
+  /// ```dart
+  /// final cached = await cache.load(store.id);
+  /// if (cached != null) {
+  ///   store.restore(cached.messages, cached.segments,
+  ///       readState: cached.readState);
+  /// }
+  /// ```
+  StoreDelta restore(
+    Iterable<M> messages,
+    List<Segment> segments, {
+    ReadState? readState,
+  }) =>
+      _mutate((d) {
+        for (final message in messages) {
+          _upsert(message, d, place: false);
+        }
+        final sorted = [...segments]
+          ..sort((a, b) => a.first.compareTo(b.first));
+        for (final segment in sorted) {
+          if (segment.first > segment.last) continue;
+          _prove(
+            segment.first,
+            segment.last,
+            // An end flag only holds if the end itself was given.
+            oldest: segment.reachedOldest && _byKey.containsKey(segment.first),
+            newest: segment.reachedNewest && _byKey.containsKey(segment.last),
+            d: d,
+          );
+        }
+        if (readState != null) _setReadState(readState, d);
+      });
+
+  /// Forgets everything about the list: messages, segments, read state,
+  /// tombstones. The next open loads it again.
+  ///
+  /// ```dart
+  /// store.reset();
+  /// ```
+  StoreDelta reset() => _mutate((d) {
+        final keys = _byKey.keys.toList(growable: false);
+        for (final key in keys) {
+          d.removedMessages.add(_byKey[key]);
+          _removeRaw(key);
+        }
+        d.removed.addAll(keys);
+        if (_segments.isNotEmpty || _knownEmpty) d.segments = true;
+        _segments.clear();
+        _tombstones.clear();
+        _sendErrors.clear();
+        _knownEmpty = false;
+        _clearedUpTo = null;
+        snapshot = null;
+        if (keys.isNotEmpty) d.cleared = true;
+        _setReadState(ReadState.empty, d);
+        if (_pinned.isNotEmpty) {
+          _pinned = const <MessageKey>[];
+          d.pinned = true;
+        }
+      });
 
   /// Clears the "send failed" state of a local message (before a retry).
   ///

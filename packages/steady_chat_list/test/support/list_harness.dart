@@ -16,6 +16,7 @@ class ListHarness {
     int outgoingEvery = 0,
     this.config = const MessageListConfig(),
     this.viewportStore,
+    this.cache,
     Msg Function(Msg message)? decorate,
   }) : server = FakeChatServer(
           count: count,
@@ -30,6 +31,7 @@ class ListHarness {
   final FakeChatServer server;
   final MessageListConfig config;
   final ViewportStore? viewportStore;
+  final MessageCache<Msg>? cache;
   late MessageListHub<Msg> hub;
   late MessageListController<Msg> controller;
 
@@ -70,6 +72,7 @@ class ListHarness {
         source: server,
         adapter: const MsgAdapter(),
         viewportStore: viewportStore,
+        cache: cache,
       );
 
   MessageListController<Msg> newController({ListId list = chat}) {

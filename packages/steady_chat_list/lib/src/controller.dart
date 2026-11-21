@@ -1134,6 +1134,57 @@ class MessageListController<M> extends ChangeNotifier {
     return key;
   }
 
+  /// Refreshes what is on screen from the backend, for after a reconnect:
+  /// the page around the top of the viewport is fetched again, messages
+  /// that were deleted meanwhile disappear, new ones are added, and the
+  /// viewport does not move. With [keepPosition] false the list reopens at
+  /// the bottom instead.
+  ///
+  /// ```dart
+  /// socket.onReconnect(() => controller.invalidate());
+  /// ```
+  Future<void> invalidate({bool keepPosition = true}) async {
+    if (_disposed || _store == null) return;
+    final anchor = _anchorKey();
+    if (!keepPosition || anchor == null) {
+      await _open(const OpenTarget.bottom());
+      return;
+    }
+    final generation = _generation;
+    final loaded = await _fetchQuietly(
+      generation,
+      PageDirection.around,
+      anchor,
+      _windowPolicy.pageSize,
+      reconcile: true,
+    );
+    if (!loaded || _stale(generation)) return;
+    // And whatever arrived after the newest loaded message.
+    await _refresh(generation, latest: false);
+  }
+
+  /// Forgets everything loaded for this list (memory and cache) and opens
+  /// it again from the backend.
+  ///
+  /// ```dart
+  /// await controller.reset();
+  /// ```
+  Future<void> reset() async {
+    if (_disposed || _store == null) return;
+    _cancelJump();
+    hub.reset(_list);
+    _pending = [];
+    _ghosts.clear();
+    _dividerKey = null;
+    selection.clear();
+    if (_shownStore != null) {
+      _keys = const [];
+      _publish();
+    }
+    _phase.value = ListPhase.loading;
+    await _open(const OpenTarget.auto());
+  }
+
   /// Replaces the read markers and unread counters.
   ///
   /// ```dart
@@ -1224,6 +1275,13 @@ class MessageListController<M> extends ChangeNotifier {
     _cancelJump();
     final generation = _newGeneration();
     _attach();
+    if (hub.needsHydration(_list)) {
+      // Read the list from the cache before deciding where to open. Apps
+      // that call `hub.hydrate` beforehand skip this wait.
+      _showLoadingIfBlank();
+      await hub.hydrate(_list);
+      if (_stale(generation)) return OpenResolution.bottom;
+    }
     final store = _store!;
     final session = store.snapshot;
     ViewportSnapshot? persisted;
@@ -1248,8 +1306,7 @@ class MessageListController<M> extends ChangeNotifier {
 
     try {
       final load = callbacks.loadSnapshot;
-      final result =
-          load != null ? load(_list) : hub.viewportStore?.load(_list);
+      final result = load != null ? load(_list) : hub.loadSnapshot(_list);
       if (result is Future<ViewportSnapshot?>) {
         return result
             .timeout(config.snapshotLoadBudget, onTimeout: () => null)
@@ -2105,11 +2162,15 @@ class MessageListController<M> extends ChangeNotifier {
 
   /// One page with retries (§13.3 `RetryPolicy`). Throws [_Superseded] when
   /// the generation changed, else the last error.
-  Future<PageOutcome<M>> _fetch(int generation, PageRequest request) async {
+  Future<PageOutcome<M>> _fetch(
+    int generation,
+    PageRequest request, {
+    bool reconcile = false,
+  }) async {
     for (var attempt = 0;; attempt++) {
       _emit(PageRequested(request.list, request));
       try {
-        final outcome = await hub.fetch(request);
+        final outcome = await hub.fetch(request, reconcile: reconcile);
         if (_stale(generation) || !outcome.applied) throw const _Superseded();
         _emit(
           PageLoaded(
@@ -2140,8 +2201,9 @@ class MessageListController<M> extends ChangeNotifier {
     int generation,
     PageDirection direction,
     MessageKey? anchor,
-    int limit,
-  ) async {
+    int limit, {
+    bool reconcile = false,
+  }) async {
     try {
       await _fetch(
         generation,
@@ -2153,6 +2215,7 @@ class MessageListController<M> extends ChangeNotifier {
           generation: generation,
           cancel: _token,
         ),
+        reconcile: reconcile,
       );
       return true;
     } catch (_) {
@@ -2422,7 +2485,7 @@ class MessageListController<M> extends ChangeNotifier {
     final save = callbacks.saveSnapshot;
     _guard('saveSnapshot', () {
       if (save != null) return save(list, snapshot, reason);
-      return hub.viewportStore?.save(list, snapshot);
+      hub.persistSnapshot(list, snapshot);
     });
     _emit(SnapshotSaved(list, snapshot, reason));
   }

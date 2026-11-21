@@ -2,7 +2,7 @@
 
 A Flutter package that gives any chat app a Telegram-grade message list: it opens at the right place, pages unlimited history with a fixed number of widgets, and never jumps under the reader's eyes.
 
-**Status: in development** (not on pub.dev yet). Built so far: the core store, the controller, the no-jump view, the simple one-widget API, jumps with search navigation, optimistic sending, animated deletes, selection, visibility callbacks and themed default widgets. Next: the offline cache and the example app. Design decisions are in [DECISIONS.md](DECISIONS.md).
+**Status: in development** (not on pub.dev yet). Built so far: the core store, the controller, the no-jump view, the simple one-widget API, jumps with search navigation, optimistic sending, animated deletes, selection, visibility callbacks, themed default widgets and the offline cache. Next: the example app and device benchmarks. Design decisions are in [DECISIONS.md](DECISIONS.md).
 
 It is made for conversations: chats, group chats, threads and comments, support chat inside any app, AI assistant chats, activity feeds. For product grids or settings lists use a plain `ListView`.
 
@@ -126,6 +126,23 @@ await search.next(); // the newest hit; again for older ones
 
 A jump over any distance is one request at most, swaps the window in one frame and animates at most one screen. Wrap your bubble in `JumpHighlightBackground(info: info, child: ...)` to flash the target.
 
+### Offline cache and saved position
+
+```dart
+final hub = MessageListHub<ChatMessage>(
+  source: MyBackend(),
+  adapter: adapter,
+  // Chats open at once and work offline:
+  cache: DriftMessageCache(
+    SteadyCacheDatabase(driftDatabase(name: 'chat_cache')), // drift_flutter
+    adapter: adapter,
+    codec: JsonMessageCodec(ChatMessage.fromJson, (m) => m.toJson()),
+  ),
+);
+```
+
+Without a cache, `viewportStore: await SharedPreferencesViewportStore.create()` is enough to reopen a chat where the reader left it, also after a browser reload. After a reconnect call `controller.invalidate()`: what is on screen is refreshed without moving.
+
 Every decision is a replaceable policy (`MessageListPolicies`), and everything the list does is reported through `controller.events` and `MessageListCallbacks`.
 
 ## Packages
@@ -134,7 +151,7 @@ Every decision is a replaceable policy (`MessageListPolicies`), and everything t
 | --- | --- | --- |
 | [`steady_chat_list_core`](packages/steady_chat_list_core) | Pure Dart: keys, segmented store, hub, policies | done so far |
 | [`steady_chat_list`](packages/steady_chat_list) | Flutter: controller, view and scroll position (done); jumps, animations, default widgets (next) | in progress |
-| [`steady_chat_list_drift`](packages/steady_chat_list_drift) | Drift (SQLite) cache, also on web | skeleton |
+| [`steady_chat_list_drift`](packages/steady_chat_list_drift) | Drift (SQLite) cache, also on web | done |
 | [`example`](example) | Demo app with a 10,000,000-message chat | milestone 8 |
 | [`benchmarks`](benchmarks) | Host app for device tests, and [results](benchmarks/RESULTS.md) | stress test done |
 

@@ -30,7 +30,7 @@ git clone https://github.com/vfiruz97/steady_chat_list.git
 cd steady_chat_list
 (cd packages/steady_chat_list_core && dart pub get)
 (cd packages/steady_chat_list && flutter pub get)
-(cd packages/steady_chat_list_drift && flutter pub get)
+(cd packages/steady_chat_list_drift && dart pub get)
 ```
 
 ## Checks
@@ -45,6 +45,7 @@ flutter analyze                          # zero issues
 (cd packages/steady_chat_list_core && dart test)
 (cd packages/steady_chat_list_core && dart test -p chrome)
 (cd packages/steady_chat_list && flutter test)
+(cd packages/steady_chat_list_drift && dart test)
 ```
 
 When you touch the view or the scroll position, also run the stress test in a browser and on a device:

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:meta/meta.dart';
 
+import 'cache.dart';
 import 'list_event.dart';
 import 'list_store.dart';
 import 'message_key.dart';
@@ -127,6 +128,8 @@ final class MessageListHub<M> {
     required this.source,
     required this.adapter,
     this.viewportStore,
+    this.cache,
+    this.evictionPolicy = const EvictionPolicy(),
     int memoryLimitPerList = 1000,
     int openListsInMemory = 10,
     this.releaseDelay = const Duration(seconds: 30),
@@ -140,7 +143,16 @@ final class MessageListHub<M> {
           openListsInMemory: openListsInMemory,
           merge: merge,
           clock: clock,
-        );
+        ) {
+    final cache = this.cache;
+    if (cache != null) {
+      _cacheChanges = cache.watch().listen(
+            _cacheChanged,
+            onError: (Object error, StackTrace stackTrace) =>
+                onError?.call(error, stackTrace),
+          );
+    }
+  }
 
   /// The app's backend.
   final MessageSource<M> source;
@@ -150,6 +162,14 @@ final class MessageListHub<M> {
 
   /// Where positions are persisted when the app gives no callbacks.
   final ViewportStore? viewportStore;
+
+  /// The persistent copy of the lists: chats open at once and work
+  /// offline. Null keeps everything in memory only.
+  final MessageCache<M>? cache;
+
+  /// What the [cache] keeps; applied once when the first list is read from
+  /// it.
+  final EvictionPolicy evictionPolicy;
 
   /// How long the event subscription of a list is kept after its last
   /// controller detached.
@@ -166,6 +186,14 @@ final class MessageListHub<M> {
   final Map<String, _Flight<M>> _flights = {};
   bool _disposed = false;
 
+  // Cache.
+  StreamSubscription<CacheChange>? _cacheChanges;
+  final Map<ListId, Future<void>> _hydrations = {};
+  final Set<ListId> _hydrated = {};
+  final Map<ListId, ViewportSnapshot> _cachedSnapshots = {};
+  final List<ListEvent<M>> _unsavedEvents = [];
+  bool _evicted = false;
+
   /// The current time (the injected clock in tests).
   DateTime now() => _clock();
 
@@ -177,6 +205,114 @@ final class MessageListHub<M> {
         for (final entry in _attachments.entries)
           if (entry.value.count > 0) entry.key,
       ];
+
+  /// Whether [list] has not been read from the [cache] yet. A controller
+  /// then awaits [hydrate] before it decides where to open.
+  bool needsHydration(ListId list) =>
+      cache != null && !_hydrated.contains(list);
+
+  /// Reads [list] from the cache into memory (once). Call it before
+  /// showing a chat to make it open in the very first frame.
+  ///
+  /// ```dart
+  /// await hub.hydrate(ListId(chat.id));
+  /// Navigator.push(context, ChatRoute(chat));
+  /// ```
+  Future<void> hydrate(ListId list) {
+    final cache = this.cache;
+    if (cache == null || _hydrated.contains(list) || _disposed) {
+      return Future<void>.value();
+    }
+    return _hydrations[list] ??= _hydrate(cache, list);
+  }
+
+  Future<void> _hydrate(MessageCache<M> cache, ListId list) async {
+    try {
+      if (!_evicted) {
+        _evicted = true;
+        await cache.evict(evictionPolicy);
+      }
+      final cached = await cache.load(list);
+      if (cached == null || _disposed) return;
+      final snapshot = cached.snapshot;
+      if (snapshot != null) _cachedSnapshots[list] = snapshot;
+      final listStore = store.list(list);
+      // Memory is newer than the cache: only fill an empty list.
+      if (listStore.isEmpty) {
+        listStore.restore(
+          cached.messages,
+          cached.segments,
+          readState: cached.readState,
+        );
+      }
+    } catch (error, stackTrace) {
+      onError?.call(error, stackTrace); // the list loads from the source
+    } finally {
+      _hydrated.add(list);
+      unawaited(_hydrations.remove(list));
+    }
+  }
+
+  /// The scroll position the cache had for [list] when it was read.
+  ViewportSnapshot? cachedSnapshot(ListId list) => _cachedSnapshots[list];
+
+  /// The persisted scroll position of [list]: from the cache (after
+  /// [hydrate]), else from the [viewportStore].
+  FutureOr<ViewportSnapshot?> loadSnapshot(ListId list) =>
+      cache != null ? _cachedSnapshots[list] : viewportStore?.load(list);
+
+  /// Persists the scroll position of [list]: in the cache when there is
+  /// one, else in the [viewportStore].
+  void persistSnapshot(ListId list, ViewportSnapshot snapshot) {
+    final cache = this.cache;
+    if (cache != null) {
+      _cachedSnapshots[list] = snapshot;
+      _write(() => cache.saveSnapshot(list, snapshot));
+      return;
+    }
+    final store = viewportStore;
+    if (store == null) return;
+    _write(() async => store.save(list, snapshot));
+  }
+
+  /// Forgets [list] in memory and in the cache.
+  StoreDelta reset(ListId list) {
+    _cachedSnapshots.remove(list);
+    final cache = this.cache;
+    if (cache != null) _write(() => cache.clear(list));
+    return store.peek(list)?.reset() ?? StoreDelta(list: list);
+  }
+
+  void _write(Future<void> Function() write) {
+    unawaited(
+      Future<void>.sync(write).catchError(
+        (Object error, StackTrace stackTrace) =>
+            onError?.call(error, stackTrace),
+      ),
+    );
+  }
+
+  /// Another tab or isolate wrote to the cache: merge what it has for the
+  /// lists that are open here.
+  void _cacheChanged(CacheChange change) {
+    final cache = this.cache;
+    if (cache == null || _disposed) return;
+    final changed = change.list;
+    final lists = changed != null ? [changed] : attachedLists.toList();
+    for (final list in lists) {
+      final listStore = store.peek(list);
+      if (listStore == null) continue;
+      _write(() async {
+        final cached = await cache.load(list);
+        if (cached == null || _disposed) return;
+        listStore.restore(
+          cached.messages,
+          cached.segments,
+          readState: cached.readState,
+        );
+      });
+    }
+  }
 
   /// Registers a user of [list] and returns its store. The first user
   /// subscribes to `source.events(list)`.
@@ -243,11 +379,15 @@ final class MessageListHub<M> {
   /// final outcome = await hub.fetch(PageRequest(
   ///   list: list, direction: PageDirection.latest, limit: 20));
   /// ```
-  Future<PageOutcome<M>> fetch(PageRequest request) {
+  ///
+  /// With [reconcile], stored messages the server no longer returns inside
+  /// the page are removed (used when refreshing after a reconnect).
+  Future<PageOutcome<M>> fetch(PageRequest request, {bool reconcile = false}) {
     final anchor = request.anchor;
     final signature = '${request.list.storageKey}|${request.direction.name}|'
         '${anchor?.order}:${anchor?.localSeq}:${anchor?.id}|'
-        '${request.anchorDate?.microsecondsSinceEpoch}|${request.limit}';
+        '${request.anchorDate?.microsecondsSinceEpoch}|${request.limit}|'
+        '$reconcile';
     final existing = _flights[signature];
     if (existing != null) {
       existing.join(request.cancel);
@@ -269,12 +409,29 @@ final class MessageListHub<M> {
     flight.future =
         Future<PageResult<M>>.sync(() => source.fetch(sent)).then((result) {
       final dropped = _disposed || flight.token.isCancelled;
+      var delta = StoreDelta(list: request.list);
+      if (!dropped) {
+        final listStore = store.list(request.list);
+        delta = listStore.applyPage(sent, result, reconcile: reconcile);
+        final cache = this.cache;
+        if (cache != null) {
+          final segments = listStore.segments.toList();
+          final removed = [for (final key in delta.removed) key.id];
+          _write(() async {
+            await cache.applyPage(sent, result, segments: segments);
+            if (removed.isNotEmpty) {
+              await cache.applyEvents(
+                [MessagesDeleted<M>(request.list, removed)],
+                segments: {request.list: segments},
+              );
+            }
+          });
+        }
+      }
       return PageOutcome<M>(
         request: sent,
         result: result,
-        delta: dropped
-            ? StoreDelta(list: request.list)
-            : store.list(request.list).applyPage(sent, result),
+        delta: delta,
         origin: PageOrigin.remote,
         duration: watch.elapsed,
         applied: !dropped,
@@ -291,7 +448,27 @@ final class MessageListHub<M> {
   /// ```
   StoreDelta apply(ListEvent<M> event) {
     if (_disposed) return StoreDelta(list: event.list);
-    return store.peek(event.list)?.apply(event) ?? StoreDelta(list: event.list);
+    final listStore = store.peek(event.list);
+    if (listStore == null) return StoreDelta(list: event.list);
+    final delta = listStore.apply(event);
+    if (cache != null && !delta.isEmpty) {
+      // One cache transaction for everything of this turn.
+      if (_unsavedEvents.isEmpty) scheduleMicrotask(_saveEvents);
+      _unsavedEvents.add(event);
+    }
+    return delta;
+  }
+
+  void _saveEvents() {
+    final cache = this.cache;
+    if (cache == null || _unsavedEvents.isEmpty) return;
+    final events = List<ListEvent<M>>.of(_unsavedEvents);
+    _unsavedEvents.clear();
+    final segments = <ListId, List<Segment>>{
+      for (final event in events)
+        event.list: store.peek(event.list)?.segments.toList() ?? const [],
+    };
+    _write(() => cache.applyEvents(events, segments: segments));
   }
 
   /// Reports to the backend that [list] was read up to [upTo].
@@ -301,7 +478,9 @@ final class MessageListHub<M> {
   /// Cancels subscriptions and pending requests. Late results are dropped.
   void dispose() {
     if (_disposed) return;
+    _saveEvents();
     _disposed = true;
+    unawaited(_cacheChanges?.cancel());
     for (final attachment in _attachments.values) {
       attachment.release?.cancel();
       unawaited(attachment.subscription?.cancel());

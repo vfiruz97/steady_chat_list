@@ -14,6 +14,7 @@ class Env {
     int count = 1000,
     int outgoingEvery = 0,
     this.viewportStore,
+    this.cache,
     Msg Function(Msg message)? decorate,
     bool cursors = false,
   }) : server = FakeChatServer(
@@ -28,6 +29,7 @@ class Env {
   final FakeAsync async;
   final FakeChatServer server;
   final ViewportStore? viewportStore;
+  final MessageCache<Msg>? cache;
   late MessageListHub<Msg> hub;
   final List<MessageListEvent> events = [];
 
@@ -36,6 +38,7 @@ class Env {
         source: server,
         adapter: const MsgAdapter(),
         viewportStore: viewportStore,
+        cache: cache,
         clock: () => async.getClock(DateTime.utc(2026, 11, 20)).now(),
       );
 

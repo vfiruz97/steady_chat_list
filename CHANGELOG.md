@@ -2,6 +2,28 @@
 
 All packages in this repository share one version.
 
+## 0.1.0-dev.8 — milestone 7: cache
+
+### steady_chat_list_core
+
+- `MessageCache`, `CachedList`, `EvictionPolicy`, `CacheChange`, `InMemoryMessageCache`, `clampSegments`.
+- `MessageListHub(cache:, evictionPolicy:)`: write-through of pages and events, `hydrate`, `loadSnapshot` / `persistSnapshot`, `reset`, merging changes from other tabs; `fetch(reconcile: true)`.
+- `ListStore.restore`, `ListStore.reset`, `applyPage(reconcile: true)`.
+
+### steady_chat_list
+
+- Lists open from the cache, offline, at the saved position.
+- `invalidate()` (refresh after a reconnect without moving) and `reset()`.
+- `SharedPreferencesViewportStore`: positions survive restarts and browser reloads. New dependency: `shared_preferences`.
+
+### steady_chat_list_drift
+
+- `DriftMessageCache`, `SteadyCacheDatabase` (plain SQL schema, no code generation), `MessageCodec`, `JsonMessageCodec`.
+
+### Tests
+
+- Acceptance tests 24 and 25 (VM). 168 tests in `steady_chat_list`, 113 in the core, 9 in the Drift package.
+
 ## 0.1.0-dev.7 — milestone 6: selection, visibility, theme and widgets
 
 ### steady_chat_list

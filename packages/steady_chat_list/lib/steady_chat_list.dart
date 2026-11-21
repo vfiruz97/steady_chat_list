@@ -29,4 +29,5 @@ export 'src/simple.dart';
 export 'src/theme.dart';
 export 'src/view.dart';
 export 'src/viewport.dart';
+export 'src/viewport_store.dart';
 export 'src/widgets.dart';

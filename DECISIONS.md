@@ -283,6 +283,33 @@ The chevron is painted and "@" / "♥" are text, so no icon font is required.
 
 **D94. Not done from §11.6 / §11.7:** the iOS status-bar tap (it needs the list to be the primary scroll view of the route, which is the app's choice), announcing incoming messages and moving accessibility focus to a jump target (`SemanticsService.announce` changed between the supported Flutter versions; planned with the next SDK bump).
 
+## Cache (§8.2, §8.3, §13.5)
+
+**D95. The cache is a persistent mirror of the newest part of each list, managed by the hub.**
+`MessageListHub(cache: …)` writes every page and event through, and reads a list once (`hydrate`). There is no separate `CachingMessageSource`: the hub already owns the store, the single-flight fetches and the events, so wrapping the source would duplicate that. With the default eviction (newest 500 messages per list plus the saved position) the cached part of a list always fits in memory, so `hydrate` loads all of it and no `range` query is needed (the method was dropped from the interface).
+
+**D96. Segments are passed to the cache.**
+`applyPage` and `applyEvents` receive the list's segments as they are in memory after the change. The cache stores them instead of re-implementing the segment algorithm in SQL. On load, the store only believes what it is given: a segment is cut down to the loaded messages and keeps an end flag only if that end was loaded.
+
+**D97. Eviction splits segments at holes.**
+When a cache keeps the newest messages and the ones around the saved position but drops what lies between, the two kept runs become two segments (`clampSegments`). Recording them as one run would hide the missing history after a restart.
+
+**D98. A controller waits for `hydrate` when the list has not been read from the cache.**
+SQLite is asynchronous, so the first frame shows the loading state unless the app calls `hub.hydrate(list)` before it builds the chat; then the first frame is already correct. Memory wins over the cache: only an empty list is filled from it.
+
+**D99. After a restart the cached "newest" segment is shown at once and then verified.** The background refresh after every open (D34) merges what was missed, or demotes the cached segment when more than a page was missed.
+
+**D100. Where the position is saved:** `callbacks.saveSnapshot` → else the cache → else the hub's `viewportStore`. `SharedPreferencesViewportStore` reads synchronously (local storage on the web), which together with D30 restores the position after a browser reload even without Drift.
+
+**D101. `invalidate()` reconciles the page around the top of the viewport.** Stored confirmed messages inside the returned page that the server no longer returns are removed (a delete missed while offline). Pending local messages stay. Then the usual refresh loads what is newer.
+
+**D102. `DriftMessageCache` has no generated code and takes a drift executor.**
+The schema is plain SQL in `SteadyCacheDatabase`, so the package works with every drift 2.x version and both supported Dart versions, and has no build step. It depends on `drift` only; the app picks the executor (`drift_flutter` for Flutter including the web, `NativeDatabase` on the VM). Versus the specification: no `tombstones` table and no `version` column (the mirror design doesn't need them), `segments` stores the local sequence of its bounds, and schema changes are handled by rebuilding the cache (it can always be refilled from the server) instead of `drift_dev` schema dumps.
+
+**D103. Web multi-tab.** `DriftMessageCache.watch()` forwards drift's table update notifications, which drift shares between tabs that use the same database; the hub then merges the cached data into its open lists. Own writes are filtered out. Verified on the VM with a simulated foreign notification; a real two-tab run is part of the example app checks.
+
+**D104. Messages are decoded on the calling isolate.** At most about 600 small payloads are decoded per list, once. Moving that to another isolate needs sendable codecs, which closures over app classes often are not.
+
 ## Known limits
 
 **L1. Stale pages are the controller's job.** The store accepts whatever it is given. Two cases can make a late page wrong and are excluded in the property test: a late "this is the newest" answer, and a page fetched before an orphan was evicted. Generations and single flight (§15, milestone 2) drop such pages before they reach the store.
