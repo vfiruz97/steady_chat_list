@@ -15,3 +15,6 @@ coverage/
 .puro.json
 PROMPT.md
 SPEC.md
+
+# Android build caches
+.kotlin/

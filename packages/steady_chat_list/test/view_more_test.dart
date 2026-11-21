@@ -1,3 +1,5 @@
+import 'dart:async';
+
 // More widget tests: albums, day headers, padding, edges, lifecycle and
 // swapping the controller.
 // ignore_for_file: unawaited_futures
@@ -277,6 +279,100 @@ void main() {
     await _settle(tester, 10);
     expect(h.controller.window.value.keys.last.order, greaterThan(last.order));
     await _dispose(tester, h.controller);
+  });
+
+  testWidgets('memory stays bounded during one long uninterrupted scroll',
+      (tester) async {
+    // No pause, so the saved position stays where the scroll began: what
+    // lies between it and the window must still be dropped.
+    final h = ListHarness(tester, count: 100000);
+    h.server.latency = const Duration(milliseconds: 1);
+    unawaited(h.controller.open(target: OpenTarget.message(k(500000))));
+    await h.pump();
+    final start = h.visible.first;
+    for (var i = 0; i < 400; i++) {
+      await h.scrollBy(-1500);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(start - h.visible.first, greaterThan(50000));
+    final store = h.hub.store.peek(chat)!;
+    expect(store.length, lessThanOrEqualTo(1000 + 2 * 40));
+    for (final key in h.controller.window.value.keys) {
+      expect(store.contains(key.id), isTrue);
+    }
+    store.debugCheckInvariants();
+    // Scrolling back down still works across the trimmed part.
+    for (var i = 0; i < 40; i++) {
+      await h.scrollBy(1500);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await h.settle();
+    expect(h.visible, isNotEmpty);
+    await h.dispose();
+  });
+
+  testWidgets('the debug overlay shows the window, segments and corrections',
+      (tester) async {
+    final h = ListHarness(tester);
+    h.controller.open(target: OpenTarget.message(k(5000)));
+    Widget build() => Directionality(
+          textDirection: TextDirection.ltr,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 400,
+              height: 600,
+              child: MessageListView<Msg>(
+                controller: h.controller,
+                debugOverlay: true,
+                itemBuilder: (context, m, info) => SizedBox(
+                  key: ValueKey('item-${m.id}'),
+                  height: h.heights[m.id] ?? 50,
+                ),
+              ),
+            ),
+          ),
+        );
+    await tester.pumpWidget(build());
+    await h.settle();
+    await h.scrollBy(600);
+    await h.settle(const Duration(milliseconds: 100));
+    String overlay() => tester
+        .widgetList<Text>(find.byType(Text))
+        .map((t) => t.data ?? '')
+        .firstWhere((t) => t.contains('generation'));
+    expect(overlay(), contains('list chat · generation'));
+    expect(overlay(), contains('window: '));
+    expect(overlay(), contains('island Segment('));
+    expect(overlay(), contains('edges: older'));
+    expect(overlay(), contains('pending fetches: none'));
+    expect(overlay(), contains('last anchor correction: 0.00 px'));
+    // A resize above the viewport: the correction shows up.
+    h.resize(h.visible.first - 30, 250);
+    await tester.pump();
+    await tester.pump();
+    expect(overlay(), contains('last anchor correction: 200.00 px'));
+
+    final text = h.controller.debugDescribe();
+    expect(text, contains('in memory: '));
+    expect(text, contains('top of viewport: ${h.visible.first}'));
+    h.server.latency = const Duration(seconds: 2);
+    h.controller.jumpTo(k(100));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(h.controller.debugDescribe(), contains('jump: programmatic → 100'));
+    expect(h.controller.debugDescribe(), contains('(loading)'));
+    expect(h.controller.debugDescribe(), contains('pending fetches: jump'));
+    await h.settle(const Duration(seconds: 3));
+    // Live segment, an edge at its end, and an empty window.
+    final bottom = h.controller.jumpToBottom();
+    await h.settle(const Duration(seconds: 3));
+    await bottom;
+    expect(h.controller.debugDescribe(), contains('live Segment('));
+    expect(h.controller.debugDescribe(), contains('newer end'));
+    await h.dispose();
+    final empty = MessageListController<Msg>(hub: h.hub, list: other);
+    expect(empty.debugDescribe(), contains('window: empty'));
+    empty.dispose();
   });
 
   testWidgets('going to the background saves the position and stops reading',

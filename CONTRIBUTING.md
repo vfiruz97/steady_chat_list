@@ -31,6 +31,7 @@ cd steady_chat_list
 (cd packages/steady_chat_list_core && dart pub get)
 (cd packages/steady_chat_list && flutter pub get)
 (cd packages/steady_chat_list_drift && dart pub get)
+(cd example && flutter pub get)
 ```
 
 ## Checks
@@ -46,6 +47,7 @@ flutter analyze                          # zero issues
 (cd packages/steady_chat_list_core && dart test -p chrome)
 (cd packages/steady_chat_list && flutter test)
 (cd packages/steady_chat_list_drift && dart test)
+(cd example && flutter test)
 ```
 
 When you touch the view or the scroll position, also run the stress test in a browser and on a device:
@@ -91,3 +93,11 @@ Please include the package version, the Flutter version, the platform, and one o
 ## License
 
 By contributing you agree that your contributions are licensed under the [MIT License](LICENSE).
+
+## Documentation
+
+`packages/steady_chat_list/README.md` (what pub.dev shows) is a copy of the guide in the root `README.md`, up to the "Packages" section and with absolute links. Change both together.
+
+## Releasing
+
+The three packages share one version. Publish in dependency order, each from its own directory after `dart pub publish --dry-run` is clean: `steady_chat_list_core`, then `steady_chat_list`, then `steady_chat_list_drift`. `pubspec_overrides.yaml` only links the local copies during development; it is not part of what pub.dev resolves.

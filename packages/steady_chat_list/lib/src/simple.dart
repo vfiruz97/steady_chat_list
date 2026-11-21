@@ -72,6 +72,7 @@ class SteadyChatList<M> extends StatefulWidget {
     this.scrollDownButton = true,
     this.scrollDownButtonBuilder,
     this.floatingDayBuilder,
+    this.debugOverlay = false,
   });
 
   /// A list over [messages] the app already has (any order).
@@ -111,6 +112,7 @@ class SteadyChatList<M> extends StatefulWidget {
     Widget Function(BuildContext context, int unread, VoidCallback onTap)?
         scrollDownButtonBuilder,
     DayHeaderBuilder? floatingDayBuilder,
+    bool debugOverlay = false,
   }) : this._(
           key: key,
           messages: messages,
@@ -141,6 +143,7 @@ class SteadyChatList<M> extends StatefulWidget {
           scrollDownButton: scrollDownButton,
           scrollDownButtonBuilder: scrollDownButtonBuilder,
           floatingDayBuilder: floatingDayBuilder,
+          debugOverlay: debugOverlay,
         );
 
   /// A list over a [stream] whose every event is the complete conversation.
@@ -183,6 +186,7 @@ class SteadyChatList<M> extends StatefulWidget {
     Widget Function(BuildContext context, int unread, VoidCallback onTap)?
         scrollDownButtonBuilder,
     DayHeaderBuilder? floatingDayBuilder,
+    bool debugOverlay = false,
   }) : this._(
           key: key,
           stream: stream,
@@ -212,6 +216,7 @@ class SteadyChatList<M> extends StatefulWidget {
           scrollDownButton: scrollDownButton,
           scrollDownButtonBuilder: scrollDownButtonBuilder,
           floatingDayBuilder: floatingDayBuilder,
+          debugOverlay: debugOverlay,
         );
 
   /// A list over a paged backend.
@@ -254,6 +259,7 @@ class SteadyChatList<M> extends StatefulWidget {
     Widget Function(BuildContext context, int unread, VoidCallback onTap)?
         scrollDownButtonBuilder,
     DayHeaderBuilder? floatingDayBuilder,
+    bool debugOverlay = false,
   }) : this._(
           key: key,
           source: source,
@@ -282,6 +288,7 @@ class SteadyChatList<M> extends StatefulWidget {
           scrollDownButton: scrollDownButton,
           scrollDownButtonBuilder: scrollDownButtonBuilder,
           floatingDayBuilder: floatingDayBuilder,
+          debugOverlay: debugOverlay,
         );
 
   /// List mode: every message of the conversation.
@@ -379,6 +386,9 @@ class SteadyChatList<M> extends StatefulWidget {
 
   /// See [MessageListView.floatingDayBuilder].
   final DayHeaderBuilder? floatingDayBuilder;
+
+  /// See [MessageListView.debugOverlay].
+  final bool debugOverlay;
 
   @override
   State<SteadyChatList<M>> createState() => _SteadyChatListState<M>();
@@ -528,6 +538,7 @@ class _SteadyChatListState<M> extends State<SteadyChatList<M>> {
       keyboardDismissBehavior: w.keyboardDismissBehavior,
       scrollbar: w.scrollbar,
       floatingDayBuilder: w.floatingDayBuilder,
+      debugOverlay: w.debugOverlay,
       scrollDownButtonBuilder: !w.scrollDownButton
           ? null
           : w.scrollDownButtonBuilder ??

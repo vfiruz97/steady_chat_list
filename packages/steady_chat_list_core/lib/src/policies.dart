@@ -90,7 +90,7 @@ final class OpenContext {
     required this.readState,
     this.sessionSnapshot,
     this.persistedSnapshot,
-    this.restoreIslandsAfterRestart = false,
+    this.restoreIslandsAfterRestart = true,
   });
 
   /// What the app asked for.

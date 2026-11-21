@@ -56,6 +56,7 @@ class MessageListView<M> extends StatefulWidget {
     this.scrollDownButtonBuilder,
     this.floatingDayBuilder,
     this.keyboardShortcuts = true,
+    this.debugOverlay = false,
   });
 
   /// Decides what is shown.
@@ -144,6 +145,11 @@ class MessageListView<M> extends StatefulWidget {
   /// keys on desktop and web (after it was clicked).
   final bool keyboardShortcuts;
 
+  /// Draws the anchor line and the controller's state over the list
+  /// (debug builds only): window, segments, edges, pending fetches,
+  /// generation and the last anchor correction (§16).
+  final bool debugOverlay;
+
   @override
   State<MessageListView<M>> createState() => _MessageListViewState<M>();
 }
@@ -171,6 +177,11 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
   bool _splitInclusive = true;
   ({PlacementResolver resolve, double? guess, bool bottom})? _initialPlacement;
   Map<String, String> _rowOfKey = const {};
+
+  // Debug overlay (§16).
+  final ValueNotifier<int> _debugTick = ValueNotifier(0);
+  double _lastCorrection = 0;
+  double? _debugAnchorY;
 
   // Keyboard and the floating day chip.
   final FocusNode _focus =
@@ -222,6 +233,7 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
     _flash.dispose();
     _focus.dispose();
     _scrolling.dispose();
+    _debugTick.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -604,7 +616,8 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
       );
     }
     final button = widget.scrollDownButtonBuilder;
-    if (button == null && dayChip == null) return list;
+    final debug = kDebugMode && widget.debugOverlay;
+    if (button == null && dayChip == null && !debug) return list;
     return Stack(
       children: [
         Positioned.fill(child: list),
@@ -618,6 +631,20 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
               scrolling: _scrolling,
               builder: dayChip,
               onTap: _dayTapped,
+            ),
+          ),
+        if (debug)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: ListenableBuilder(
+                listenable: _debugTick,
+                builder: (context, _) => _DebugOverlay(
+                  text: '${controller.debugDescribe()}\n'
+                      'last anchor correction: '
+                      '${_lastCorrection.toStringAsFixed(2)} px',
+                  anchorY: _debugAnchorY,
+                ),
+              ),
             ),
           ),
         if (button != null)
@@ -1031,7 +1058,11 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
       ],
     );
     if (kDebugMode && corrected.abs() > 0.01) {
+      _lastCorrection = corrected;
       _controller.reportDiagnostic(AnchorCorrected(corrected));
+    }
+    if (kDebugMode && widget.debugOverlay) {
+      _debugAnchorY = _anchors.isEmpty ? null : _anchors.first.$2 - pixels;
     }
     if (!_reportScheduled) {
       _reportScheduled = true;
@@ -1043,6 +1074,7 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
   /// layout).
   void _report() {
     _reportScheduled = false;
+    if (kDebugMode && mounted && widget.debugOverlay) _debugTick.value++;
     if (mounted) _updateJump();
     final frame = _frame;
     final viewport = _viewport;
@@ -1501,6 +1533,52 @@ class _EdgeRow extends StatelessWidget {
             EdgeIdle() || EdgeEnd() => const SizedBox.shrink(),
           };
         },
+      );
+}
+
+/// The debug overlay: a line where the anchor's top is and the state text.
+class _DebugOverlay extends StatelessWidget {
+  const _DebugOverlay({required this.text, required this.anchorY});
+
+  final String text;
+  final double? anchorY;
+
+  @override
+  Widget build(BuildContext context) => Stack(
+        children: [
+          if (anchorY != null)
+            Positioned(
+              top: anchorY,
+              left: 0,
+              right: 0,
+              child: const ColoredBox(
+                color: Color(0xFFFF3B30),
+                child: SizedBox(height: 1),
+              ),
+            ),
+          Align(
+            alignment: Alignment.topLeft,
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: DecoratedBox(
+                decoration: const BoxDecoration(color: Color(0xCC000000)),
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Text(
+                    text,
+                    style: const TextStyle(
+                      color: Color(0xFF7CFC00),
+                      fontSize: 10,
+                      height: 1.3,
+                      fontFamily: 'monospace',
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       );
 }
 

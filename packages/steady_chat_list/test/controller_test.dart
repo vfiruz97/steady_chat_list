@@ -99,13 +99,16 @@ void main() {
       });
     });
 
-    test('test 3: a persisted island is discarded after a restart', () {
+    test('test 3: a persisted island is discarded after a restart when asked',
+        () {
       final store = InMemoryViewportStore()
         ..save(chat, snapshotAt(5000, live: false));
       run(
         env: (async) => Env(async, viewportStore: store),
         (env) {
-          final controller = env.controller();
+          final controller = env.controller(
+            config: const MessageListConfig(restoreIslandsAfterRestart: false),
+          );
           OpenResolution? how;
           controller.open().then((r) => how = r);
           env.settle();
@@ -116,15 +119,13 @@ void main() {
       );
     });
 
-    test('a persisted island is restored when the app allows it', () {
+    test('a persisted island is restored by default (browser reload)', () {
       final store = InMemoryViewportStore()
         ..save(chat, snapshotAt(5000, live: false, offset: 30));
       run(
         env: (async) => Env(async, viewportStore: store),
         (env) {
-          final controller = env.controller(
-            config: const MessageListConfig(restoreIslandsAfterRestart: true),
-          );
+          final controller = env.controller();
           final view = FakeViewport(controller);
           OpenResolution? how;
           controller.open().then((r) => how = r);

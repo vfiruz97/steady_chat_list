@@ -199,13 +199,18 @@ void main() {
     hub.protect(chat, a, KeyRange(k(30), k(50)));
     hub.protect(chat, b, KeyRange(k(170), k(180)));
     hub.protect(const ListId('unknown'), a, KeyRange(k(1), k(2)));
-    // Both windows stay, and so does what lies between them: a segment is
-    // never split.
-    expect(orders(hub.trim(chat).evicted), unorderedEquals([10, 20, 190, 200]));
-    expect(orders(store.keys), [for (var o = 30; o <= 180; o += 10) o]);
+    // Both windows stay. What lies between them goes first, and the
+    // segment is split at the hole: two views of one chat far apart must
+    // not pin everything between them.
+    final evicted = orders(hub.trim(chat).evicted);
+    expect(evicted, hasLength(15));
+    expect(orders(store.keys), [30, 40, 50, 170, 180]);
+    expect(store.segments, hasLength(2));
+    expect(store.isContiguous(k(50), k(170)), isFalse);
+    expect(store.segments.last.reachedNewest, isFalse);
+    store.debugCheckInvariants();
     hub.protect(chat, b, null);
-    expect(orders(store.keys).length - hub.trim(chat).evicted.length, 5);
-    expect(orders(store.keys), [30, 40, 50, 60, 70]);
+    expect(hub.trim(chat).isEmpty, isTrue, reason: 'already at the limit');
     hub.detach(chat, owner: a);
     expect(hub.trim(chat).isEmpty, isTrue, reason: 'already at the limit');
     expect(hub.trim(const ListId('unknown')).isEmpty, isTrue);

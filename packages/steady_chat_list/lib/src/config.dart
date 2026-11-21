@@ -24,7 +24,7 @@ class MessageListConfig {
     this.readDebounce = const Duration(milliseconds: 300),
     this.readDwell = const Duration(milliseconds: 100),
     this.groupingGap = const Duration(minutes: 5),
-    this.restoreIslandsAfterRestart = false,
+    this.restoreIslandsAfterRestart = true,
     this.snapshotLoadBudget = const Duration(milliseconds: 50),
     this.jump = const JumpOptions(),
     this.loadingIndicatorDelay = const Duration(milliseconds: 150),
@@ -72,8 +72,12 @@ class MessageListConfig {
   /// Messages of one sender further apart than this start a new group.
   final Duration groupingGap;
 
-  /// Whether a persisted position outside the live segment is restored
-  /// after a restart (Telegram: no).
+  /// Whether a saved position deep in the history (not connected to the
+  /// newest message) is restored after a restart or a browser reload.
+  ///
+  /// True by default: the reader comes back to the message they were
+  /// reading. With false such a position is dropped and the list opens at
+  /// the first unread message or at the bottom, as Telegram does.
   final bool restoreIslandsAfterRestart;
 
   /// How long `loadSnapshot` may take before it is ignored.

@@ -277,6 +277,20 @@ void main() {
     });
   });
 
+  test('typing users are exposed for a footer', () {
+    run((env) {
+      final controller = env.controller()..open();
+      env.settle();
+      expect(controller.typingUserIds.value, isEmpty);
+      env.server.push(const TypingChanged<Msg>(chat, {'alice'}));
+      env.settle(Duration.zero);
+      expect(controller.typingUserIds.value, {'alice'});
+      env.server.push(const TypingChanged<Msg>(chat, {}));
+      env.settle(Duration.zero);
+      expect(controller.typingUserIds.value, isEmpty);
+    });
+  });
+
   test('events describe themselves; item info compares by value', () {
     expect(
       const CallbackError('onOpened', 'boom', StackTrace.empty).toString(),

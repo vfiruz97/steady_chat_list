@@ -526,6 +526,42 @@ void main() {
       store.page(server.latest(40)); // 610..1000
     });
 
+    test('drops the middle between two protected ranges and splits', () {
+      final store = ListStore<Msg>(id: chat, adapter: const MsgAdapter())
+        ..applyPage(
+          PageRequest(
+            list: chat,
+            direction: PageDirection.latest,
+            limit: 100,
+          ),
+          PageResult(
+            items: [for (var i = 1; i <= 100; i++) Msg(i * 10)],
+            reachedOldest: true,
+          ),
+        );
+      final delta = store.evict(
+        limit: 30,
+        protect: [KeyRange(k(10), k(100)), KeyRange(k(910), k(1000))],
+      );
+      expect(delta.evicted, hasLength(70));
+      expect(store.length, 30);
+      expect(store.segments, hasLength(2));
+      // The kept neighborhoods are runs around each protected range.
+      final first = store.segments.first;
+      final last = store.segments.last;
+      expect(first.first, k(10));
+      expect(first.reachedOldest, isTrue);
+      expect(first.reachedNewest, isFalse);
+      expect(last.last, k(1000));
+      expect(last.reachedNewest, isTrue);
+      expect(last.reachedOldest, isFalse);
+      expect(store.isContiguous(first.last, last.first), isFalse);
+      for (final order in [10, 100, 910, 1000]) {
+        expect(store.contains('m$order'), isTrue);
+      }
+      store.debugCheckInvariants();
+    });
+
     test('trims the far end and clears its flag', () {
       store.page(server.older(k(610), 200)); // everything, reachedOldest
       expect(store.segments.single.reachedOldest, isTrue);

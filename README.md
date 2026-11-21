@@ -2,7 +2,7 @@
 
 A Flutter package that gives any chat app a Telegram-grade message list: it opens at the right place, pages unlimited history with a fixed number of widgets, and never jumps under the reader's eyes.
 
-**Status: in development** (not on pub.dev yet). Built so far: the core store, the controller, the no-jump view, the simple one-widget API, jumps with search navigation, optimistic sending, animated deletes, selection, visibility callbacks, themed default widgets and the offline cache. Next: the example app and device benchmarks. Design decisions are in [DECISIONS.md](DECISIONS.md).
+**Status: pre-release** (`0.1.0-dev`, not on pub.dev yet). Everything described here is implemented and tested; the API may still change before 1.0. The [example app](example) shows every feature, and the design decisions are in [DECISIONS.md](DECISIONS.md).
 
 It is made for conversations: chats, group chats, threads and comments, support chat inside any app, AI assistant chats, activity feeds. For product grids or settings lists use a plain `ListView`.
 
@@ -143,19 +143,61 @@ final hub = MessageListHub<ChatMessage>(
 
 Without a cache, `viewportStore: await SharedPreferencesViewportStore.create()` is enough to reopen a chat where the reader left it, also after a browser reload. After a reconnect call `controller.invalidate()`: what is on screen is refreshed without moving.
 
-Every decision is a replaceable policy (`MessageListPolicies`), and everything the list does is reported through `controller.events` and `MessageListCallbacks`.
+### Reacting to what the list does
+
+Every decision is a replaceable policy (`MessageListPolicies`), and everything the list does is reported twice: as callbacks (`MessageListCallbacks`) and as a stream.
+
+```dart
+controller.events.listen((event) {
+  switch (event) {
+    case ReadUpTo(:final key): api.markRead(chat.id, key.id);
+    case UnreadChanged(:final count): badges.set(chat.id, count);
+    case MessagesSeen(:final keys): analytics.seen(keys);
+    case PageFailed(:final error): log.warning('page failed', error);
+    default:
+  }
+});
+```
+
+State you build UI from is exposed as `ValueListenable`s: `unreadCount`, `isAtBottom`, `showScrollDownButton`, `olderEdge` / `newerEdge`, `topVisibleDay`, `currentPinned`, `typingUserIds`, `jumpInProgress`, `selection`.
+
+### Ready-made widgets
+
+All optional and themed with `MessageListTheme` (no Material dependency): `MessageListButtons` (scroll down, next mention, next reaction, with badges), `DayHeader`, `UnreadDivider`, `SwipeToReply`, `JumpHighlightBackground`, default loading, empty and error states.
+
+### Two rules for your item widgets
+
+1. **Give media a size before it loads** (an `AspectRatio` from the dimensions your backend sends). The list keeps the viewport still when a row changes height, but a row that is on screen visibly grows.
+2. **Change a message by sending a new object** (`controller.patch`, an event, or a new list). Only the changed rows rebuild.
+
+### Debugging
+
+`MessageListView(debugOverlay: true)` draws the anchor line and the state of the window in debug builds; `controller.debugDescribe()` returns the same as text for bug reports.
+
+## Example app
+
+```sh
+cd example
+flutter run -d chrome        # or macos, an Android or iOS device
+```
+
+A menu on the left lists the demos; each has a line that says what it shows: the three simple modes, an AI reply that streams in, a chat with 10,000,000 messages, a group chat with every feature, search navigation, a control panel for the simulated server (latency, failures, storms, remote deletes and edits, lost connection), the offline cache (in memory or SQLite, also in the browser), split view, the event log and theming. Scroll anywhere and reload the browser tab: you are back at the same message, at the same pixel.
+
+## Performance
+
+Measured by the [benchmarks](benchmarks/RESULTS.md) in profile mode. On a desktop: a fling through 5,000 messages builds frames in 2 ms (95th percentile); 50 incoming messages per second or 200 reaction updates per second drop no frames; a jump across a million messages is one request; memory stays flat however far you scroll (1,000 messages per chat are kept, 80 rows are built).
 
 ## Packages
 
-| Package | What it is | Status |
-| --- | --- | --- |
-| [`steady_chat_list_core`](packages/steady_chat_list_core) | Pure Dart: keys, segmented store, hub, policies | done so far |
-| [`steady_chat_list`](packages/steady_chat_list) | Flutter: controller, view and scroll position (done); jumps, animations, default widgets (next) | in progress |
-| [`steady_chat_list_drift`](packages/steady_chat_list_drift) | Drift (SQLite) cache, also on web | done |
-| [`example`](example) | Demo app with a 10,000,000-message chat | milestone 8 |
-| [`benchmarks`](benchmarks) | Host app for device tests, and [results](benchmarks/RESULTS.md) | stress test done |
+| Package | What it is |
+| --- | --- |
+| [`steady_chat_list`](packages/steady_chat_list) | The Flutter package: controller, view, simple API, widgets |
+| [`steady_chat_list_core`](packages/steady_chat_list_core) | Pure Dart: keys, segmented store, hub, policies, cache interface. Exported by `steady_chat_list` |
+| [`steady_chat_list_drift`](packages/steady_chat_list_drift) | Optional SQLite cache on [drift](https://pub.dev/packages/drift), also on the web |
+| [`example`](example) | The demo app |
+| [`benchmarks`](benchmarks) | Performance and stress tests, and their [results](benchmarks/RESULTS.md) |
 
-Requires Dart 3.5 / Flutter 3.24 or newer.
+Requires Dart 3.5 / Flutter 3.24 or newer. Android, iOS, web, macOS, Windows and Linux.
 
 ## Contributing
 

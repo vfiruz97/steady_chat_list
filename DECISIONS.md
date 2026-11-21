@@ -310,6 +310,24 @@ The schema is plain SQL in `SteadyCacheDatabase`, so the package works with ever
 
 **D104. Messages are decoded on the calling isolate.** At most about 600 small payloads are decoded per list, once. Moving that to another isolate needs sendable codecs, which closures over app classes often are not.
 
+## Example, benchmarks, debug tools (§16, §17, §19)
+
+**D105. A saved position deep in the history is restored after a restart by default** (`restoreIslandsAfterRestart: true`). §10.1 drops it (as Telegram does), and then a browser reload in a chat with unread messages opens at the first unread message instead of where the reader was. The owner's requirement is that a reload shows where the user was, so the default follows that; `false` gives the behavior of the specification. Found by reloading the example in a browser.
+
+**D106. Eviction splits a segment instead of keeping everything between two protected ranges.** Before, the messages between two windows on one list, or between the saved position and the window, were never dropped, so one long scroll without a pause kept everything it passed (found by the memory benchmark: 100,029 messages after scrolling 100,000). Now the messages farthest from any protected range go first and each kept run becomes its own segment, the same rule the cache uses (D97). The controller trims after every window change, with one page of slack.
+
+**D107. The debug overlay exists only in debug builds** (`kDebugMode`), so it costs nothing in release. `debugDescribe()` works in every build.
+
+**D108. `typingUserIds` on the controller.** The store already tracked `TypingChanged`; a footer needs a listenable.
+
+**D109. The example has one page per capability, a left menu with a one-line description under each title** (the owner's request), and remembers the open page, so a browser reload returns to the same page and position. Positions are kept by `SharedPreferencesViewportStore`; the Drift cache is one of the demos, not a requirement for restoring.
+
+**D110. The example's server is deterministic and generated on demand**, including search: the first word of message *n* depends on *n* modulo the word list, so "3 of 250,000" over ten million messages is a formula. The hash uses small factors so that it gives the same content on the web, where integers are doubles.
+
+**D111. Benchmarks measure frame times with `SchedulerBinding.addTimingsCallback` and run with `flutter drive --profile`.** `traceAction` needs a VM service connection that is not available on every target; frame timings are the same numbers the engine reports to DevTools. "Build" in the results is the whole UI-thread part of a frame (build, layout and paint), which is stricter than the "build + layout" of §14.1. Budgets are asserted with 10% slack in profile and release builds only. There is no CI in the repository yet; the same command is what a CI job would run.
+
+**D112. Not measured: a physical mid-range Android phone, and Chrome frame times.** Only a desktop and an emulator were available. The emulator numbers are in the results as a lower bound for a real device.
+
 ## Known limits
 
 **L1. Stale pages are the controller's job.** The store accepts whatever it is given. Two cases can make a late page wrong and are excluded in the property test: a late "this is the newest" answer, and a page fetched before an orphan was evicted. Generations and single flight (§15, milestone 2) drop such pages before they reach the store.

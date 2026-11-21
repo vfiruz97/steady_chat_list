@@ -1,0 +1,23 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  errors:
+    # The example uses Material and must build on Flutter 3.24 as well as on
+    # versions where `package:flutter/material.dart` is deprecated.
+    deprecated_member_use: ignore
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - macos/**
+
+linter:
+  rules:
+    prefer_final_locals: true
+    prefer_const_constructors: true
+    unawaited_futures: true

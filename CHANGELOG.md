@@ -2,6 +2,30 @@
 
 All packages in this repository share one version.
 
+## 0.1.0-dev.9 — milestone 8: example app, benchmarks, debug tools
+
+### steady_chat_list_core
+
+- **Changed:** eviction drops what is farthest from the protected ranges, also between two of them, and splits the segment at the hole. Before, everything between two protected ranges (two views of one chat, or the saved position and the window during one long scroll) was kept, so memory grew with the distance scrolled.
+- **Changed:** `OpenContext.restoreIslandsAfterRestart` defaults to true.
+
+### steady_chat_list
+
+- `MessageListView(debugOverlay: true)` and `controller.debugDescribe()`.
+- `controller.typingUserIds` for a typing indicator.
+- **Changed:** `MessageListConfig.restoreIslandsAfterRestart` defaults to true: a position deep in the history is restored after a restart or a browser reload, also when the chat has unread messages. Set it to false for the previous behavior.
+- **Fixed:** memory is trimmed whenever the window moves (paging, jumps, new messages at the bottom), not only when it grows from messages already in memory.
+
+### steady_chat_list_drift
+
+- `benchmark/drift_benchmark.dart`.
+
+### Example and benchmarks
+
+- `example/`: a demo app with a left menu of twelve demos on a simulated server with a 10,000,000-message chat. Reloading the browser restores the page and the position.
+- `benchmarks/integration_test/performance_test.dart`: fling, cached open, jumps, message and reaction storms, memory. Results in `benchmarks/RESULTS.md`.
+- A README and CHANGELOG in every package.
+
 ## 0.1.0-dev.8 — milestone 7: cache
 
 ### steady_chat_list_core

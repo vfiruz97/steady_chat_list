@@ -146,6 +146,7 @@ class MessageListController<M> extends ChangeNotifier {
   MessageKey? _prefetchedBefore;
   MessageKey? _prefetchedAfter;
   final ValueNotifier<DateTime?> _topVisibleDay = ValueNotifier(null);
+  final ValueNotifier<Set<String>> _typing = ValueNotifier(const {});
 
   // Per-item change notifiers (one bubble rebuilds, not the list).
   final Map<String, _ItemNotifier> _items = {};
@@ -262,6 +263,64 @@ class MessageListController<M> extends ChangeNotifier {
     return hub.adapter.isOutgoing(message) ? SendState.sent : SendState.none;
   }
 
+  /// A text description of the controller's state, for bug reports and the
+  /// debug overlay (§16): the window, the segments (live and islands),
+  /// edges, pending fetches, the generation and the counters.
+  ///
+  /// ```dart
+  /// debugPrint(controller.debugDescribe());
+  /// ```
+  String debugDescribe() {
+    final store = _shownStore;
+    final lines = <String>[
+      'list ${_list.storageKey} · generation $_generation · '
+          '${_phase.value.name}',
+    ];
+    if (_keys.isEmpty) {
+      lines.add('window: empty');
+    } else {
+      lines.add(
+        'window: ${_keys.first.order}..${_keys.last.order} '
+        '(${_keys.length}/${_windowPolicy.windowSize})'
+        '${_ghosts.isEmpty ? '' : ' · ${_ghosts.length} removing'}',
+      );
+    }
+    if (store != null) {
+      final segments = [
+        for (final segment in store.segments)
+          '${segment.isLive ? 'live' : 'island'} $segment',
+      ];
+      lines
+        ..add('segments: ${segments.isEmpty ? 'none' : segments.join(', ')}')
+        ..add('in memory: ${store.length} messages');
+    }
+    String edge(EdgeState state) => switch (state) {
+          EdgeIdle() => 'idle',
+          EdgeLoading() => 'loading',
+          EdgeError(:final error) => 'error ($error)',
+          EdgeEnd() => 'end',
+        };
+    final pending = [
+      for (final entry in _edgeBusy.entries)
+        if (entry.value) entry.key.name,
+      if (_jumpFlight != null) 'jump',
+    ];
+    lines
+      ..add('edges: older ${edge(_olderEdge.value)} · '
+          'newer ${edge(_newerEdge.value)}')
+      ..add('pending fetches: ${pending.isEmpty ? 'none' : pending.join(', ')}')
+      ..add('at bottom: ${_isAtBottom.value} · ends at newest: $_endsAtNewest '
+          '· unread: ${_unreadCount.value}');
+    final jump = _jumpState.value;
+    if (jump != null) {
+      lines.add('jump: ${jump.reason.name} → ${jump.target?.order ?? 'bottom'}'
+          '${jump.isLoading ? ' (loading)' : ''}');
+    }
+    final anchor = _anchorKey();
+    if (anchor != null) lines.add('top of viewport: ${anchor.order}');
+    return lines.join('\n');
+  }
+
   /// Reports a diagnostic through `events` and `onDiagnostic`. The view
   /// uses this.
   void reportDiagnostic(MessageListDiagnostic diagnostic) =>
@@ -292,6 +351,10 @@ class MessageListController<M> extends ChangeNotifier {
   /// Local midnight of the day of the topmost visible message (for a
   /// floating day chip).
   ValueListenable<DateTime?> get topVisibleDay => _topVisibleDay;
+
+  /// Ids of the users typing right now (from `TypingChanged` events), for
+  /// a typing indicator in `footerBuilder`.
+  ValueListenable<Set<String>> get typingUserIds => _typing;
 
   /// The jump that is running, if any.
   ValueListenable<JumpState?> get jumpInProgress => _jumpState;
@@ -452,6 +515,7 @@ class MessageListController<M> extends ChangeNotifier {
       _unreadReactions,
       _currentPinned,
       _topVisibleDay,
+      _typing,
       selection,
     ]) {
       notifier.dispose();
@@ -1491,6 +1555,7 @@ class MessageListController<M> extends ChangeNotifier {
   }
 
   void _opened(OpenResolution resolution) {
+    _typing.value = _store?.typingUserIds ?? const {};
     _updateNavigationState();
     _liveLastSeen = _store?.liveSegment?.last;
     _readOutbox.value = _store?.readState.lastReadOutbox;
@@ -1640,6 +1705,12 @@ class MessageListController<M> extends ChangeNotifier {
     );
     _updateEdges();
     _updateBottomState();
+    // Memory stays bounded wherever the window goes: paging through
+    // history, many jumps, or hours at the bottom of a busy chat. The
+    // slack of one page makes this run once per page, not per message.
+    if (store.length > hub.store.memoryLimitPerList + _windowPolicy.pageSize) {
+      hub.trim(store.id);
+    }
   }
 
   void _updateEdges() {
@@ -1800,6 +1871,7 @@ class MessageListController<M> extends ChangeNotifier {
     _animateChanges(store, [...incoming, ...local], deleted, removedMessages);
     _liveLastSeen = store.liveSegment?.last;
     _readOutbox.value = store.readState.lastReadOutbox;
+    _typing.value = store.typingUserIds;
     _recomputeWindow(store, replaced);
     _recomputeUnread();
     _updateNavigationState();

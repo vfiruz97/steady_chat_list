@@ -962,8 +962,7 @@ final class ListStore<M> {
     final segOf = List<int>.filled(n, -1);
     final segLo = List<int>.filled(count, -1);
     final segHi = List<int>.filled(count, -1);
-    final hullLo = List<int>.filled(count, -1);
-    final hullHi = List<int>.filled(count, -1);
+    final hasProtected = List<bool>.filled(count, false);
     final protected = List<bool>.filled(n, false);
     var si = 0;
     for (var i = 0; i < n; i++) {
@@ -977,9 +976,28 @@ final class ListStore<M> {
       segOf[i] = si;
       if (segLo[si] < 0) segLo[si] = i;
       segHi[si] = i;
+      if (protected[i]) hasProtected[si] = true;
+    }
+    // Distance to the nearest protected key of the same segment. What is
+    // far from everything a controller shows goes first, also when it lies
+    // between two protected ranges (two views of one chat far apart, or a
+    // long scroll away from the saved position): the segment is then split
+    // at the hole, never kept as one run with missing messages.
+    final distance = List<int>.filled(n, n);
+    var last = -1;
+    for (var i = 0; i < n; i++) {
       if (protected[i]) {
-        if (hullLo[si] < 0) hullLo[si] = i;
-        hullHi[si] = i;
+        last = i;
+      } else if (last >= 0 && segOf[i] >= 0 && segOf[i] == segOf[last]) {
+        distance[i] = i - last;
+      }
+    }
+    last = -1;
+    for (var i = n - 1; i >= 0; i--) {
+      if (protected[i]) {
+        last = i;
+      } else if (last >= 0 && segOf[i] >= 0 && segOf[i] == segOf[last]) {
+        if (last - i < distance[i]) distance[i] = last - i;
       }
     }
     // Higher score = dropped earlier.
@@ -990,9 +1008,8 @@ final class ListStore<M> {
       final s = segOf[i];
       if (s < 0) {
         score[i] = _orphanScore;
-      } else if (hullLo[s] >= 0) {
-        if (i >= hullLo[s] && i <= hullHi[s]) continue;
-        score[i] = i < hullLo[s] ? hullLo[s] - i : i - hullHi[s];
+      } else if (hasProtected[s]) {
+        score[i] = distance[i];
       } else {
         final fromNewest = segHi[s] - i;
         score[i] =
@@ -1009,26 +1026,30 @@ final class ListStore<M> {
       _sendErrors.remove(keys[i].id);
       d.evicted.add(keys[i]);
     }
+    // Every run of kept keys of an old segment is a segment; only a run
+    // that still has the old end keeps that end's flag.
     final next = <Segment>[];
     for (var s = 0; s < count; s++) {
-      var first = segLo[s];
-      var last = segHi[s];
-      while (first <= last && dropped[first]) {
-        first++;
-      }
-      while (last >= first && dropped[last]) {
-        last--;
-      }
-      if (first > last) continue;
+      if (segLo[s] < 0) continue;
       final old = _segments[s];
-      next.add(
-        Segment(
-          first: keys[first],
-          last: keys[last],
-          reachedOldest: old.reachedOldest && first == segLo[s],
-          reachedNewest: old.reachedNewest && last == segHi[s],
-        ),
-      );
+      var start = -1;
+      for (var i = segLo[s]; i <= segHi[s] + 1; i++) {
+        final kept = i <= segHi[s] && !dropped[i];
+        if (kept) {
+          if (start < 0) start = i;
+          continue;
+        }
+        if (start < 0) continue;
+        next.add(
+          Segment(
+            first: keys[start],
+            last: keys[i - 1],
+            reachedOldest: old.reachedOldest && start == segLo[s],
+            reachedNewest: old.reachedNewest && i - 1 == segHi[s],
+          ),
+        );
+        start = -1;
+      }
     }
     if (!_sameSegments(next, _segments)) {
       _segments
