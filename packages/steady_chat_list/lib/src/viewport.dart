@@ -84,6 +84,8 @@ final class ViewportMetrics {
     required this.extentBefore,
     required this.extentAfter,
     this.userDragging = false,
+    this.windowExtentBefore,
+    this.windowExtentAfter,
   });
 
   /// The list's viewport in global coordinates.
@@ -100,6 +102,17 @@ final class ViewportMetrics {
 
   /// Whether a finger is dragging the list.
   final bool userDragging;
+
+  /// The estimated height (px) of the window's messages above the
+  /// viewport: their number times the average height of the visible ones.
+  /// Paging decisions use it instead of [extentBefore] when it is given,
+  /// because a scroll extent also counts space that rows which were
+  /// unmounted left behind.
+  final double? windowExtentBefore;
+
+  /// The estimated height (px) of the window's messages below the
+  /// viewport. See [windowExtentBefore].
+  final double? windowExtentAfter;
 }
 
 /// Where the view must put the window before it paints (§11.4).

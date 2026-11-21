@@ -2094,8 +2094,8 @@ class MessageListController<M> extends ChangeNotifier {
     // the new window: wait for the next report.
     if (_disposed || metrics == null || _keys.isEmpty || _metricsStale) return;
     if (!identical(_store, _shownStore)) return;
-    final before = metrics.extentBefore;
-    final after = metrics.extentAfter;
+    final before = metrics.windowExtentBefore ?? metrics.extentBefore;
+    final after = metrics.windowExtentAfter ?? metrics.extentAfter;
     final average = (before + metrics.viewport.height + after) / _keys.length;
     final full =
         _keys.length + _windowPolicy.pageSize > _windowPolicy.windowSize;

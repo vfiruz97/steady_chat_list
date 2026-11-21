@@ -46,8 +46,12 @@ class _Bubble extends StatelessWidget {
   final Msg message;
   final MessageItemInfo info;
 
+  /// How many rows were built, to see what a slow frame did.
+  static int builds = 0;
+
   @override
   Widget build(BuildContext context) {
+    builds++;
     final mine = message.order % 30 == 0;
     return Padding(
       padding: EdgeInsets.fromLTRB(8, info.isFirstInGroup ? 6 : 2, 8, 2),
@@ -104,7 +108,13 @@ class _Bench {
       adapter: const MsgAdapter(),
       cache: cache,
     );
-    controller = MessageListController<Msg>(hub: hub, list: chat);
+    controller = MessageListController<Msg>(
+      hub: hub,
+      list: chat,
+      config: windowSize == 0
+          ? const MessageListConfig()
+          : const MessageListConfig(windowSize: windowSize),
+    );
   }
 
   final WidgetTester tester;
@@ -199,6 +209,15 @@ void budget(bool ok, String what) {
   expect(ok, isTrue, reason: 'budget exceeded: $what');
 }
 
+/// `--dart-define=WINDOW=120` runs with another window size.
+const int windowSize = int.fromEnvironment('WINDOW');
+
+/// `--dart-define=ONLY=fling` runs only the scenarios whose name contains
+/// the text.
+const String only = String.fromEnvironment('ONLY');
+
+bool skipped(String name) => only.isNotEmpty && !name.contains(only);
+
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
@@ -214,6 +233,7 @@ void main() {
   });
 
   testWidgets('fling through 5,000 messages', (tester) async {
+    if (skipped('fling')) return;
     final b = _Bench(tester);
     unawaited(b.controller.open(target: OpenTarget.message(k(5000000))));
     await tester.pumpWidget(b.app());
@@ -225,6 +245,15 @@ void main() {
     // 30 px per frame at 60 fps = 1,800 px/s, then faster and faster up
     // to 7,200 px/s: a hard fling. Pages arrive with 150 ms latency.
     var frames = 0;
+    // What the slowest frames did: the time from the start of the frame to
+    // the end of its build, layout and paint, the rows built in it, and
+    // whether the window changed or a page arrived.
+    final slow = <Map<String, Object?>>[];
+    var pages = 0;
+    final events = b.controller.events.listen((event) {
+      if (event is PageLoaded) pages++;
+    });
+    final clock = Stopwatch()..start();
     while (first - b.controller.visibleItems.first.key.order < 5000 * 10) {
       final speed = (30 + frames ~/ 4).clamp(30, 120).toDouble();
       final position = b.position;
@@ -232,15 +261,38 @@ void main() {
         (position.pixels - speed)
             .clamp(position.minScrollExtent, position.maxScrollExtent),
       );
+      final builds = _Bubble.builds;
+      final window = b.controller.window.value;
+      final pagesBefore = pages;
+      var began = 0;
+      var ended = 0;
+      SchedulerBinding.instance
+        ..scheduleFrameCallback((_) => began = clock.elapsedMicroseconds)
+        ..addPostFrameCallback((_) => ended = clock.elapsedMicroseconds);
       await tester.pump();
+      final work = (ended - began) / 1000;
+      if (work > 10) {
+        slow.add({
+          'frame': frames,
+          'ms': (work * 10).round() / 10,
+          'rows_built': _Bubble.builds - builds,
+          'window_changed': !identical(window, b.controller.window.value),
+          'page_arrived': pages > pagesBefore,
+        });
+      }
       if (b.rows == 0) blank++;
       frames++;
       if (watch.elapsed > const Duration(minutes: 4)) break;
     }
+    await events.cancel();
+    slow.sort((x, y) => (y['ms']! as double).compareTo(x['ms']! as double));
+    print('BENCH fling slow frames (${slow.length} over 10 ms): '
+        '${slow.take(12).toList()}');
     final result = await b.stopFrames()
       ..['seconds'] = watch.elapsed.inSeconds
       ..['blank_frames'] = blank
-      ..['rows_built'] = b.rows;
+      ..['rows_built'] = b.rows
+      ..['slow_frames_over_10ms'] = slow.length;
     record('fling_5000', result);
     budget((result['build_p95_ms']! as double) <= 8 * slack, 'fling p95');
     budget(result['over_32ms'] == 0, 'fling: a frame over 32 ms');
@@ -249,6 +301,7 @@ void main() {
   });
 
   testWidgets('open a cached chat: correct in the first frame', (tester) async {
+    if (skipped('open')) return;
     final cache = InMemoryMessageCache<Msg>(adapter: const MsgAdapter());
     // First run fills the cache.
     final warm = _Bench(tester, cache: cache);
@@ -293,6 +346,7 @@ void main() {
   });
 
   testWidgets('20 jumps across 1,000,000 messages', (tester) async {
+    if (skipped('jump')) return;
     final b = _Bench(tester);
     unawaited(b.controller.open());
     await tester.pumpWidget(b.app());
@@ -338,6 +392,7 @@ void main() {
 
   testWidgets('50 incoming messages per second for 30 s at the bottom',
       (tester) async {
+    if (skipped('incoming')) return;
     final b = _Bench(tester);
     unawaited(b.controller.open());
     await tester.pumpWidget(b.app());
@@ -360,6 +415,7 @@ void main() {
 
   testWidgets('200 reaction updates per second on visible messages',
       (tester) async {
+    if (skipped('reactions')) return;
     final b = _Bench(tester);
     unawaited(b.controller.open());
     await tester.pumpWidget(b.app());
@@ -386,6 +442,7 @@ void main() {
 
   testWidgets('memory stays flat while scrolling 100,000 messages',
       (tester) async {
+    if (skipped('memory')) return;
     final b = _Bench(tester);
     b.server.latency = const Duration(milliseconds: 1);
     unawaited(b.controller.open(target: OpenTarget.message(k(5000000))));

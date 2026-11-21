@@ -47,7 +47,7 @@ cd benchmarks && flutter test integration_test/anchor_stress_test.dart -d <devic
 
 | Scenario | Result | Budget (§14.1) |
 | --- | --- | --- |
-| Fling through 5,000 messages (up to 7,200 px/s, 4,263 frames) | build p50 0.43 ms, p95 2.25 ms, max 8.9 ms; no blank frame | p95 ≤ 8 ms, none over 32 ms ✅ |
+| Fling through 5,000 messages (up to 7,200 px/s, 4,502 frames) | build p50 0.54 ms, p95 1.78 ms, max 6.4 ms; no blank frame | p95 ≤ 8 ms, none over 32 ms ✅ |
 | Open a cached chat (network 5 s away) | first frame already shows the messages at the bottom; build median 6.8 ms, max 8.1 ms | same frame, ≤ 16 ms ✅ |
 | Jump across 1,000,000 messages, target on the server (20 jumps) | median 570 ms, max 576 ms (150 ms of it is the request); no blank frame | ≤ 700 ms ✅ |
 | Jump, target in memory (20 jumps) | median 420 ms, max 428 ms (the animation) | ≤ 450 ms ✅ |
@@ -88,6 +88,23 @@ The benchmark built as a web page (`flutter build web --release -t integration_t
 The fling is where the web differs from native: two frames of 3,888 took longer than 32 ms. The storms have no slow frame, so the cost is in bringing many new rows on screen at once at fling speed (text layout in CanvasKit, and possibly garbage collection); it was not investigated further.
 
 Two tabs sharing the Drift cache were also tried for real in this Chrome: a message sent in one tab appears in the other, once, through the shared database (the tabs' simulated servers are separate, so it can only have come from the cache).
+
+### The fling in Chrome, before and after the fix of D116 and D117
+
+The slow frames of the fling were traced (`BENCH fling slow frames` in the output lists the slowest frames with what they did). Two causes were in the package and are fixed: the framework built a row at every index that became free when the window shifted (about 35 rows in one frame, all far from the viewport), and skewed distance estimates made the window bounce between two positions when a page arrived.
+
+Same Chrome, same session, old code and new code one after the other (this session was slower overall than the run in the table above, so compare the two columns with each other, not with that table):
+
+| Fling through 5,000 messages | Before | After |
+| --- | --- | --- |
+| Rows built in a frame in which a page arrives | about 35 | about 13 (what the cache area needs), 2 to 5 when the page is not late |
+| Build p50 / p95 | 4.2 ms / 9.0 ms | 3.4 ms / 7.0–7.4 ms |
+| Frames over 16 ms | 126 of 3,435 | 33–36 of about 4,100 |
+| Frames over 32 ms | 3 | 2 |
+
+On macOS (profile) the same change took the fling from build p95 2.25 ms and max 8.9 ms to p95 1.78 ms and max 6.4 ms.
+
+What is left in Chrome: a page that arrives late (the fling reached the edge of the loaded window first) needs about 13 rows at once to fill the cache area, at roughly 2.5 ms per row with text layout in CanvasKit; and one or two frames per run with almost nothing built that still take over 30 ms, which the package does not cause (the reaction storm shows the same with the old and the new code). "No frame over 32 ms" is therefore still not met in Chrome at this fling speed. A larger window (120 instead of 80) made no measurable difference.
 
 ### iPhone 16 Pro simulator, Flutter 3.50.1 (debug build)
 

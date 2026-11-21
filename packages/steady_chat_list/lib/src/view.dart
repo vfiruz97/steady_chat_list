@@ -168,6 +168,8 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
   Map<String, int> _lowerIndex = const {};
   final Map<String, (_Row, int, Widget)> _built = {};
   int _widgetEpoch = 0;
+  final _RebuildFilter _upperFilter = _RebuildFilter();
+  final _RebuildFilter _lowerFilter = _RebuildFilter();
 
   // Placement.
   int _serial = -1;
@@ -523,9 +525,10 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
     SliverChildBuilderDelegate delegate(
       List<_Row> rows,
       Map<String, int> index,
+      _RebuildFilter filter,
     ) =>
         SliverChildBuilderDelegate(
-          (context, i) => _rowWidget(rows[i]),
+          (context, i) => filter.skips(i) ? null : _rowWidget(rows[i]),
           childCount: rows.length,
           findChildIndexCallback: (key) =>
               key is ValueKey<String> ? index[key.value] : null,
@@ -558,11 +561,13 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
         ),
         _SteadySliverList(
           key: ValueKey<String>('upper$_epoch'),
-          delegate: delegate(_upper, _upperIndex),
+          filter: _upperFilter,
+          delegate: delegate(_upper, _upperIndex, _upperFilter),
         ),
         _SteadySliverList(
           key: centerKey,
-          delegate: delegate(_lower, _lowerIndex),
+          filter: _lowerFilter,
+          delegate: delegate(_lower, _lowerIndex, _lowerFilter),
         ),
         SliverToBoxAdapter(
           child: _EdgeRow(
@@ -1082,6 +1087,29 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
     }
     final origin = viewport.localToGlobal(Offset.zero);
     final width = viewport.size.width;
+    // How far the window reaches beyond the viewport, from the number of
+    // its messages there and the average height of the visible ones.
+    double? windowBefore;
+    double? windowAfter;
+    if (frame.rows.isNotEmpty) {
+      final keys = _controller.window.value.keys;
+      final (firstKeys, firstTop, _) = frame.rows.first;
+      final (lastKeys, lastTop, lastHeight) = frame.rows.last;
+      final first = keys.indexOf(firstKeys.first);
+      final last = keys.indexOf(lastKeys.last);
+      if (first >= 0 && last >= first) {
+        var visibleHeight = 0.0;
+        for (final (_, _, height) in frame.rows) {
+          visibleHeight += height;
+        }
+        final average = visibleHeight / (last - first + 1);
+        final hiddenAbove = firstTop < 0 ? -firstTop : 0.0;
+        final below = lastTop + lastHeight - frame.height;
+        windowBefore = first * average + hiddenAbove;
+        windowAfter =
+            (keys.length - 1 - last) * average + (below > 0 ? below : 0.0);
+      }
+    }
     _controller.reportViewport(
       ViewportMetrics(
         viewport: origin & viewport.size,
@@ -1104,6 +1132,8 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
         extentAfter:
             frame.max - frame.pixels < 0 ? 0 : frame.max - frame.pixels,
         userDragging: frame.dragging,
+        windowExtentBefore: windowBefore,
+        windowExtentAfter: windowAfter,
       ),
     );
   }
@@ -1688,11 +1718,33 @@ class _AnchoredScrollController extends ScrollController {
 /// gap left at index 0 is closed by the sliver's own scroll offset
 /// correction when the viewport gets there.
 class _SteadySliverList extends SliverList {
-  const _SteadySliverList({super.key, required super.delegate});
+  const _SteadySliverList({
+    super.key,
+    required super.delegate,
+    required this.filter,
+  });
+
+  /// Shared with the delegate's builder; see [_SteadySliverElement].
+  final _RebuildFilter filter;
 
   @override
   SliverMultiBoxAdaptorElement createElement() =>
       _SteadySliverElement(this, replaceMovedChildren: true);
+}
+
+/// Lets the sliver's element tell the delegate which indices it may build
+/// during a rebuild.
+class _RebuildFilter {
+  int? _last;
+
+  /// Whether [index] lies beyond the rows that exist. Such a row is left
+  /// to layout, which builds it only if the viewport reaches it. A missing
+  /// row before or between existing ones is built at once: layout would
+  /// not look for it.
+  bool skips(int index) {
+    final last = _last;
+    return last != null && index > last;
+  }
 }
 
 class _SteadySliverElement extends SliverMultiBoxAdaptorElement {
@@ -1709,7 +1761,29 @@ class _SteadySliverElement extends SliverMultiBoxAdaptorElement {
           (child.parentData! as SliverMultiBoxAdaptorParentData).layoutOffset;
       if (offset != null) offsets[child] = offset;
     }
-    super.performRebuild();
+    // When the window shifts, the rows that stay move to other indices, and
+    // the framework would at once build a new row at every index they left:
+    // dozens of rows far from the viewport, built in one frame and dropped
+    // by the next layout. Nothing is built here beyond the last row that
+    // exists; layout builds what the viewport really needs there.
+    final sliver = widget as _SteadySliverList;
+    int? last;
+    visitChildren((child) {
+      final key = child.widget.key;
+      final index = key == null
+          ? child.slot as int?
+          : sliver.delegate.findIndexByKey(key);
+      if (index != null && (last == null || index > last!)) last = index;
+    });
+    sliver.filter._last = last;
+    try {
+      super.performRebuild();
+    } finally {
+      sliver.filter._last = null;
+    }
+    // A row that was skipped changed nothing in the render tree; layout
+    // has to run to look for it.
+    list.markNeedsLayout();
     for (var child = list.firstChild;
         child != null;
         child = list.childAfter(child)) {

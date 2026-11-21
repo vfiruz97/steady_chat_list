@@ -281,6 +281,36 @@ void main() {
     await _dispose(tester, h.controller);
   });
 
+  testWidgets('a page that arrives builds only the rows near the viewport',
+      (tester) async {
+    // When the window shifts, every row that stays gets another index. The
+    // framework then builds a row at each index that became free: rows far
+    // away, built in one frame and dropped by the next layout.
+    final h = ListHarness(tester, count: 100000);
+    unawaited(h.controller.open(target: OpenTarget.message(k(500000))));
+    await h.pump();
+    var most = 0;
+    final start = h.inits.length;
+    for (var frame = 0; frame < 300; frame++) {
+      final before = h.inits.length;
+      await h.scrollBy(-60);
+      await tester.pump(const Duration(milliseconds: 16));
+      final created = h.inits.length - before;
+      if (created > most) most = created;
+    }
+    // 600 px of viewport and 800 px of cache area hold 28 rows of 50 px.
+    expect(most, lessThanOrEqualTo(20));
+    // Scrolling one way, a row is created once: none is built ahead of
+    // time, dropped and built again.
+    final counts = <String, int>{};
+    for (final id in h.inits.skip(start)) {
+      counts[id] = (counts[id] ?? 0) + 1;
+    }
+    expect(counts.values.where((n) => n > 1), isEmpty);
+    expect(counts.length, greaterThan(300));
+    await h.dispose();
+  });
+
   testWidgets('memory stays bounded during one long uninterrupted scroll',
       (tester) async {
     // No pause, so the saved position stays where the scroll began: what

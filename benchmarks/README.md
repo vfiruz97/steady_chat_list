@@ -23,4 +23,6 @@ flutter test integration_test/anchor_stress_test.dart -d <device>
 (cd ../packages/steady_chat_list_drift && dart run benchmark/drift_benchmark.dart)
 ```
 
+`--dart-define=ONLY=fling` runs one scenario (`fling`, `open`, `jump`, `incoming`, `reactions`, `memory`), and `--dart-define=WINDOW=120` another window size. The fling also prints its slowest frames with the rows built in each.
+
 The performance test prints one `BENCH` line per scenario and fails when a budget is exceeded by more than 10% (in profile and release builds; debug builds are several times slower and only report).

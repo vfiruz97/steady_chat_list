@@ -334,6 +334,10 @@ The schema is plain SQL in `SteadyCacheDatabase`, so the package works with ever
 
 **D115. A message that another tab is still sending is not merged from the shared cache.** Only the sending tab receives the ack that replaces it; in the other tab it stayed "sending" forever next to the confirmed message. The confirmed message is merged as usual. (D103 is now verified with two real tabs.)
 
+**D116. The sliver does not build rows at indices that became free.** When the window shifts, the rows that stay move to other indices. Flutter's `SliverMultiBoxAdaptorElement.performRebuild` then builds a new child at every index they left, at once: about 35 rows far from the viewport, built in one frame and dropped by the next layout. During a rebuild the delegate now returns nothing for indices beyond the last existing row, and the sliver is marked for layout, which builds only what the viewport and its cache area reach. A missing row before or between existing rows is still built at once, because layout would not look for it. Found by tracing slow frames of the fling in Chrome.
+
+**D117. Paging distances are estimated from the number of messages, not from scroll extents.** The slivers keep the layout offsets of rows that stay (D-notes of milestone 3), so after rows near the center are unmounted the scroll extent still counts the space they left. With those extents the rule that keeps the two edges from triggering each other failed: a page was added on one side, and in the same frame the window was extended back on the other. The view now also reports the distance to each window edge as (messages there) × (average height of the visible ones), and paging uses that (`ViewportMetrics.windowExtentBefore` / `windowExtentAfter`; a custom view may leave them out).
+
 ## Known limits
 
 **L1. Stale pages are the controller's job.** The store accepts whatever it is given. Two cases can make a late page wrong and are excluded in the property test: a late "this is the newest" answer, and a page fetched before an orphan was evicted. Generations and single flight (§15, milestone 2) drop such pages before they reach the store.
