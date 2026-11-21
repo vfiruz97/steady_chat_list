@@ -941,6 +941,8 @@ final class ListStore<M> {
 
   bool _check({required bool deep}) {
     Never fail(String what) => throw StateError('$what in $this');
+    // These can only fail when the store itself has a bug.
+    // coverage:ignore-start
     for (var i = 0; i < _segments.length; i++) {
       final s = _segments[i];
       if (s.first > s.last) fail('Segment $i is inverted');
@@ -959,6 +961,7 @@ final class ListStore<M> {
       fail('Indexes disagree (${_byKey.length} keys, '
           '${_keyById.length} ids, ${_byDate.length} dates)');
     }
+    // coverage:ignore-end
     if (!deep) return true;
     MessageKey? previous;
     for (final entry in _byKey.entries) {
@@ -967,7 +970,7 @@ final class ListStore<M> {
       previous = key;
       final indexed = _keyById[key.id];
       if (indexed == null || !indexed.isSamePosition(key)) {
-        fail('Id index is stale for $key');
+        fail('Id index is stale for $key'); // coverage:ignore-line
       }
       if (!adapter.keyOf(entry.value).isSamePosition(key)) {
         fail('Message stored under the wrong key $key');
@@ -975,7 +978,9 @@ final class ListStore<M> {
       if (_isCleared(key)) fail('Cleared key $key is stored');
     }
     for (var i = 1; i < _pinned.length; i++) {
+      // coverage:ignore-start
       if (_pinned[i - 1] > _pinned[i]) fail('Pinned keys are unsorted');
+      // coverage:ignore-end
     }
     return true;
   }

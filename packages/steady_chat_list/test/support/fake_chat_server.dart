@@ -11,6 +11,8 @@ class Msg {
     this.rev = 0,
     this.outgoing = false,
     this.service = false,
+    this.group,
+    this.sender,
   }) : _id = id;
 
   final int order;
@@ -19,6 +21,8 @@ class Msg {
   final int rev;
   final bool outgoing;
   final bool service;
+  final String? group;
+  final String? sender;
 
   String get id => _id ?? 'm$order';
 
@@ -37,6 +41,12 @@ class MsgAdapter extends MessageAdapter<Msg> {
   @override
   DateTime dateOf(Msg m) =>
       DateTime.fromMillisecondsSinceEpoch(m.order * 60000, isUtc: true);
+
+  @override
+  String? groupIdOf(Msg m) => m.group;
+
+  @override
+  String? senderIdOf(Msg m) => m.sender;
 
   @override
   bool isOutgoing(Msg m) => m.outgoing;
@@ -59,6 +69,7 @@ class FakeChatServer implements MessageSource<Msg> {
     this.step = 10,
     this.latency = const Duration(milliseconds: 150),
     this.outgoingEvery = 0,
+    this.decorate,
   });
 
   final int count;
@@ -67,6 +78,9 @@ class FakeChatServer implements MessageSource<Msg> {
 
   /// Every n-th message is outgoing (0 = none).
   final int outgoingEvery;
+
+  /// Rewrites generated messages (albums, senders).
+  final Msg Function(Msg message)? decorate;
 
   /// Sent along with every page when set.
   ReadState? readState;
@@ -94,7 +108,9 @@ class FakeChatServer implements MessageSource<Msg> {
     }
     if (order <= 0 || order % step != 0 || order ~/ step > count) return null;
     final n = order ~/ step;
-    return Msg(order, outgoing: outgoingEvery > 0 && n % outgoingEvery == 0);
+    final message =
+        Msg(order, outgoing: outgoingEvery > 0 && n % outgoingEvery == 0);
+    return decorate?.call(message) ?? message;
   }
 
   int? _next(int order) {

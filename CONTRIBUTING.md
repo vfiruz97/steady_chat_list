@@ -16,7 +16,7 @@ Thanks for helping. This page covers how the repository is laid out, how to run 
 | `packages/steady_chat_list` | Flutter: controller, view, default widgets. |
 | `packages/steady_chat_list_drift` | Drift (SQLite) cache. |
 | `example` | Demo app. |
-| `benchmarks` | Performance tests and `RESULTS.md`. |
+| `benchmarks` | Host app for device tests and benchmarks, and `RESULTS.md`. |
 | `DECISIONS.md` | Design decisions with their reasons. The `§` numbers in code comments and tests refer to the internal specification. |
 
 The packages are linked with `pubspec_overrides.yaml`. There is no pub workspace and no melos, so nothing needs to be installed besides Flutter.
@@ -45,6 +45,13 @@ flutter analyze                          # zero issues
 (cd packages/steady_chat_list_core && dart test)
 (cd packages/steady_chat_list_core && dart test -p chrome)
 (cd packages/steady_chat_list && flutter test)
+```
+
+When you touch the view or the scroll position, also run the stress test in a browser and on a device:
+
+```sh
+(cd packages/steady_chat_list && flutter test --platform chrome test/anchor_stress_test.dart)
+(cd benchmarks && flutter pub get && flutter test integration_test/anchor_stress_test.dart -d <device>)
 ```
 
 Benchmarks (run them when you touch the store, the controller or the view, and update `benchmarks/RESULTS.md` if a number moves by more than 10%):

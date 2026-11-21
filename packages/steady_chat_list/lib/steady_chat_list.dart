@@ -16,7 +16,10 @@ library;
 
 export 'package:steady_chat_list_core/steady_chat_list_core.dart';
 
+export 'src/anchored_scroll_position.dart';
 export 'src/config.dart';
 export 'src/controller.dart';
 export 'src/events.dart';
+export 'src/item_info.dart';
+export 'src/view.dart';
 export 'src/viewport.dart';

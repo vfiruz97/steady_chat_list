@@ -6,6 +6,7 @@ import 'package:steady_chat_list_core/steady_chat_list_core.dart';
 
 import 'config.dart';
 import 'events.dart';
+import 'item_info.dart';
 import 'viewport.dart';
 
 /// Runs [callback] once, at the start of the next frame.
@@ -17,7 +18,14 @@ import 'viewport.dart';
 typedef FrameScheduler = void Function(VoidCallback callback);
 
 void _nextFrame(VoidCallback callback) {
-  SchedulerBinding.instance.scheduleFrameCallback((_) => callback());
+  final binding = SchedulerBinding.instance;
+  if (binding.framesEnabled) {
+    binding.scheduleFrameCallback((_) => callback());
+  } else {
+    // In the background there are no frames; counters and callbacks must
+    // still follow the data.
+    Timer.run(callback);
+  }
 }
 
 /// Drives one message list: decides where it opens, which messages are
@@ -89,6 +97,7 @@ class MessageListController<M> extends ChangeNotifier {
   int _placementSerial = 0;
   bool _endsAtNewest = false;
   ViewportMetrics? _metrics;
+  bool _metricsStale = false; // the window changed since they were taken
   final ValueNotifier<MessageWindow> _window;
 
   // Store changes, batched per frame.
@@ -114,6 +123,9 @@ class MessageListController<M> extends ChangeNotifier {
   // Persistence.
   Timer? _persistTimer;
 
+  // Per-item change notifiers (one bubble rebuilds, not the list).
+  final Map<String, _ItemNotifier> _items = {};
+
   // Events.
   final StreamController<MessageListEvent> _events =
       StreamController<MessageListEvent>.broadcast();
@@ -127,6 +139,7 @@ class MessageListController<M> extends ChangeNotifier {
   final ValueNotifier<MessageKey?> _highestVisible = ValueNotifier(null);
   final ValueNotifier<EdgeState> _olderEdge = ValueNotifier(const EdgeIdle());
   final ValueNotifier<EdgeState> _newerEdge = ValueNotifier(const EdgeIdle());
+  final ValueNotifier<MessageKey?> _readOutbox = ValueNotifier(null);
 
   // ------------------------------------------------------ observable state
 
@@ -163,6 +176,57 @@ class MessageListController<M> extends ChangeNotifier {
 
   /// Everything this controller reports (§13.2). Broadcast.
   Stream<MessageListEvent> get events => _events.stream;
+
+  /// Whether the window ends at the newest message of the list.
+  bool get windowEndsAtNewest => _endsAtNewest;
+
+  /// The newest outgoing message the peer has read (for checkmarks).
+  ValueListenable<MessageKey?> get lastReadOutbox => _readOutbox;
+
+  /// Notifies when the message with [id] changes (edit, reactions, send
+  /// state). The view listens per item, so one change rebuilds one bubble.
+  ///
+  /// ```dart
+  /// ListenableBuilder(
+  ///   listenable: controller.listenableFor(key.id),
+  ///   builder: (context, _) => Bubble(controller.messageOf(key)!),
+  /// );
+  /// ```
+  Listenable listenableFor(String id) =>
+      _items[id] ??= _ItemNotifier(() => _items.remove(id));
+
+  /// The key right before [key] in its segment (not limited to the
+  /// window), or null.
+  MessageKey? keyBefore(MessageKey key) {
+    final keys = _shownStore?.keysBefore(key, 1);
+    return keys == null || keys.isEmpty ? null : keys.first;
+  }
+
+  /// The key right after [key] in its segment (not limited to the window),
+  /// or null.
+  MessageKey? keyAfter(MessageKey key) {
+    final keys = _shownStore?.keysAfter(key, 1);
+    return keys == null || keys.isEmpty ? null : keys.first;
+  }
+
+  /// The delivery state of the message with the id of [key].
+  SendState sendStateOf(MessageKey key) {
+    final store = _shownStore;
+    final message = store?.messageOf(key.id);
+    if (store == null || message == null) return SendState.none;
+    final current = store.keyOf(key.id)!;
+    if (current.isLocal) {
+      return store.sendErrorOf(key.id) != null
+          ? SendState.failed
+          : SendState.sending;
+    }
+    return hub.adapter.isOutgoing(message) ? SendState.sent : SendState.none;
+  }
+
+  /// Reports a diagnostic through `events` and `onDiagnostic`. The view
+  /// uses this.
+  void reportDiagnostic(MessageListDiagnostic diagnostic) =>
+      _diagnose(diagnostic);
 
   /// The message with the id of [key] in the list that is on screen.
   ///
@@ -224,6 +288,8 @@ class MessageListController<M> extends ChangeNotifier {
   void setForeground({required bool foreground}) {
     if (_foreground == foreground) return;
     _foreground = foreground;
+    // Frames stop in the background: apply what is pending now.
+    if (!foreground && _flushScheduled) _flush();
     final metrics = _metrics;
     if (foreground && metrics != null) _trackRead(metrics);
   }
@@ -257,6 +323,7 @@ class MessageListController<M> extends ChangeNotifier {
       _highestVisible,
       _olderEdge,
       _newerEdge,
+      _readOutbox,
     ]) {
       notifier.dispose();
     }
@@ -316,6 +383,7 @@ class MessageListController<M> extends ChangeNotifier {
   void reportViewport(ViewportMetrics metrics) {
     if (_disposed || _keys.isEmpty) return;
     _metrics = metrics;
+    _metricsStale = false;
     _updateBottomState();
     _trackRead(metrics);
     _persistTimer?.cancel();
@@ -587,6 +655,7 @@ class MessageListController<M> extends ChangeNotifier {
 
   void _opened(OpenResolution resolution) {
     _liveLastSeen = _store?.liveSegment?.last;
+    _readOutbox.value = _store?.readState.lastReadOutbox;
     _recomputeUnread();
     _emit(ListOpened(_list, resolution));
   }
@@ -823,7 +892,12 @@ class MessageListController<M> extends ChangeNotifier {
     if (local.isNotEmpty) {
       _emit(MessageInserted(_list, local, InsertCause.local));
     }
-    if (updated.isNotEmpty) _emit(MessageUpdated(_list, updated));
+    if (updated.isNotEmpty) {
+      _emit(MessageUpdated(_list, updated));
+      for (final key in updated) {
+        _items[key.id]?.changed();
+      }
+    }
     if (deleted.isNotEmpty) {
       _emit(MessageRemoved(_list, deleted, RemoveCause.deleted));
     }
@@ -831,6 +905,7 @@ class MessageListController<M> extends ChangeNotifier {
       _emit(MessageRemoved(_list, cleared, RemoveCause.historyCleared));
     }
     _liveLastSeen = store.liveSegment?.last;
+    _readOutbox.value = store.readState.lastReadOutbox;
     _recomputeWindow(store, replaced);
     _recomputeUnread();
     _maybePage();
@@ -891,11 +966,12 @@ class MessageListController<M> extends ChangeNotifier {
     }
     if (keys.length > size) {
       final metrics = _metrics;
-      final dropOldest = atBottom ||
-          followed ||
-          (metrics != null && metrics.extentBefore > metrics.extentAfter);
-      keys =
-          dropOldest ? keys.sublist(keys.length - size) : keys.sublist(0, size);
+      keys = _fit(
+        keys,
+        dropOldest: atBottom ||
+            followed ||
+            (metrics != null && metrics.extentBefore > metrics.extentAfter),
+      );
     }
     _moveDividerIfGone(store);
     if (_sameKeys(keys, _keys)) {
@@ -903,6 +979,7 @@ class MessageListController<M> extends ChangeNotifier {
       return;
     }
     _keys = keys;
+    _metricsStale = true;
     _publish();
   }
 
@@ -929,7 +1006,9 @@ class MessageListController<M> extends ChangeNotifier {
 
   void _maybePage() {
     final metrics = _metrics;
-    if (_disposed || metrics == null || _keys.isEmpty) return;
+    // Extents measured before the last window change say nothing about
+    // the new window: wait for the next report.
+    if (_disposed || metrics == null || _keys.isEmpty || _metricsStale) return;
     if (!identical(_store, _shownStore)) return;
     final before = metrics.extentBefore;
     final after = metrics.extentAfter;
@@ -1014,35 +1093,55 @@ class MessageListController<M> extends ChangeNotifier {
 
   bool _growFromStore(ListStore<M> store, {required bool older}) {
     final page = _windowPolicy.pageSize;
-    final size = _windowPolicy.windowSize;
     final more = older
         ? store.keysBefore(_keys.first, page)
         : store.keysAfter(_keys.last, page);
     if (more.isEmpty) return false;
-    var keys = older ? [...more, ..._keys] : [..._keys, ...more];
-    if (keys.length > size) {
-      // Unmount from the far side, but never something that is on screen.
-      final visible = _metrics?.items ?? const <VisibleItem>[];
-      if (older) {
-        var end = size;
-        if (visible.isNotEmpty) {
-          final index = keys.indexOf(visible.last.key) + 1;
-          if (index > end) end = index;
-        }
-        keys = keys.sublist(0, end);
-      } else {
-        var start = keys.length - size;
-        if (visible.isNotEmpty) {
-          final index = keys.indexOf(visible.first.key);
-          if (index >= 0 && index < start) start = index;
-        }
-        keys = keys.sublist(start);
-      }
-    }
+    final keys = _fit(
+      older ? [...more, ..._keys] : [..._keys, ...more],
+      dropOldest: !older,
+    );
     _keys = keys;
+    _metricsStale = true;
     _publish();
     hub.trim(store.id);
     return true;
+  }
+
+  /// Cuts [keys] down to the window size from the given side, but never
+  /// unmounts something that is on screen (then the other side gives way).
+  List<MessageKey> _fit(List<MessageKey> keys, {required bool dropOldest}) {
+    final size = _windowPolicy.windowSize;
+    if (keys.length <= size) return keys;
+    final visible = _metrics?.items ?? const <VisibleItem>[];
+    var firstVisible = visible.isEmpty ? -1 : keys.indexOf(visible.first.key);
+    var lastVisible = visible.isEmpty ? -1 : keys.indexOf(visible.last.key);
+    if (firstVisible < 0 || lastVisible < 0) {
+      firstVisible = keys.length;
+      lastVisible = -1;
+    }
+    var start = 0;
+    var end = keys.length;
+    void cutOldest() {
+      final wanted = end - size;
+      start = wanted < firstVisible ? wanted : firstVisible;
+      if (start < 0) start = 0;
+    }
+
+    void cutNewest() {
+      final wanted = start + size;
+      end = wanted > lastVisible + 1 ? wanted : lastVisible + 1;
+      if (end > keys.length) end = keys.length;
+    }
+
+    if (dropOldest) {
+      cutOldest();
+      cutNewest();
+    } else {
+      cutNewest();
+      cutOldest();
+    }
+    return keys.sublist(start, end);
   }
 
   /// One page with retries (§13.3 `RetryPolicy`). Throws [_Superseded] when
@@ -1391,6 +1490,21 @@ bool _sameKeys(List<MessageKey> a, List<MessageKey> b) {
     if (a[i].id != b[i].id || !a[i].isSamePosition(b[i])) return false;
   }
   return true;
+}
+
+/// Notifies the listeners of one item; forgets itself when unused.
+final class _ItemNotifier extends ChangeNotifier {
+  _ItemNotifier(this._onUnused);
+
+  final VoidCallback _onUnused;
+
+  void changed() => notifyListeners();
+
+  @override
+  void removeListener(VoidCallback listener) {
+    super.removeListener(listener);
+    if (!hasListeners) _onUnused();
+  }
 }
 
 /// A fetch whose controller moved on (new open, switch or dispose).

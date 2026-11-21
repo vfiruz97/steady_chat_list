@@ -127,6 +127,56 @@ The first read starts a `readDebounce` timer; later reads don't restart it, so c
 
 **D40. Not in this milestone:** `jumpTo…`, `reselect`, `search` (milestone 4); `insertLocal`, remove animations (5); selection, geometry, visibility, prefetch, the remaining callbacks (6); `invalidate`, `reset`, the cache (7); `debugDescribe` (8). `MessageListConfig` and `MessageListCallbacks` only have the fields that already work.
 
+## View and scroll position (§11)
+
+**D41. Scroll structure: two sliver lists around a center that is not an item.**
+`CustomScrollView(center: …)` with an upper list (rows older than the split, index 0 nearest the center) and a lower list (the split row and newer). A placement sets the split, so the first frame needs no measuring (§11.4): for an anchor or the unread divider the anchor row is the first row below the center and `pixels = −offset`; for the bottom every row is above the center and `pixels = maxScrollExtent`.
+
+**D42. The center is not moved to the anchor after trims (deviation from §11.1 "re-center").**
+Moving the center moves rows from one sliver list to the other, which destroys their `State` (playing video, running animations) unless every item has a `GlobalKey` (forbidden by §14 rule 8). Instead:
+- rows never change lists between placements;
+- when one side of the center has no surviving row, the center moves to the edge of the other side, so rows that come back (a page re-added after a trim) grow away from the center;
+- `_SteadySliverList` makes built rows keep their layout offsets when their indices change (D43).
+A new placement (open, restore; jumps in milestone 4) builds fresh sliver lists.
+
+**D43. `_SteadySliverList`: built rows keep their layout offsets across index changes.**
+A stock `SliverList` ties layout offsets to indices. When rows are removed or added before the built ones (window trim), each moved child takes the offset of whatever used to be at its new index, or loses its offset and is destroyed together with its `State`. The subclass restores every surviving child's own offset after the element rebuilds. The list then reflows from its first built child as usual; a gap left at index 0 is closed by `RenderSliverList`'s own scroll offset correction when the viewport gets near it, and the anchor logic absorbs the remainder. This relies on documented `RenderSliverList` behavior and is covered by test 5 and the stress test on Flutter 3.24 and 3.50.
+
+**D44. Anchor correction compares scroll offsets, not screen positions.**
+At every accepted layout the position records the scroll offset of the first visible row (and three fallbacks). At the next layout, if that offset changed, content before the anchor changed size and `pixels` is corrected by the same amount in the same layout pass (§11.2). User scrolling changes `pixels`, not the row's offset, so it is never fought. Offsets are read from the sliver parent data (O(1) per row) instead of `getOffsetToReveal`.
+
+**D45. Corrections made by the viewport itself are accounted for.**
+When a sliver asks for a scroll offset correction, the viewport calls `correctBy`; the recorded anchor offsets are shifted by the same amount so the anchor logic doesn't apply it twice.
+
+**D46. Bottom pinning keeps the distance to the bottom.**
+A list within `stickToBottomThreshold` of the bottom is pinned: when content or the viewport changes size, the distance to the bottom (0 when exactly at the bottom) is kept. It does not snap to 0, otherwise a slow scroll away from the bottom would be pulled back on every frame. Pinning wins over the anchor (§11.2 rule 3); `BottomStickPolicy` can refuse it while dragging.
+
+**D47. "Leading filler sliver" is implemented as scroll bounds.**
+Content shorter than the viewport reports `min == max` at the bottom-aligned offset, computed from the slivers' real extents. No filler widget is needed and nothing can be scrolled.
+
+**D48. One row per message or album; day header and unread divider are part of the row below them.**
+The row is the direct child of the sliver list, a repaint boundary, and registers its render object by id (no `GlobalKey` per item, §14 rule 8). Rows are cached: a window change rebuilds only new rows and rows whose flags changed; a message update rebuilds one row through `controller.listenableFor(id)` (§14 rule 1). Rebuilding the `MessageListView` widget rebuilds the built rows, because its builders may close over new state.
+
+**D49. The view reports to the controller after the frame.**
+Metrics are collected during layout and sent in a post-frame callback, so no controller state or app callback changes during build or layout (§13.1).
+
+**D50. The controller does not page on metrics that are older than its window.**
+After a window change the extents are stale until the view reports again; paging on them fetched a second page for every page. Window trimming never unmounts a row that is on screen (the other side gives way).
+
+**D51. In the background the controller updates on a timer.**
+Flutter stops frames when the app is paused or hidden, so the per-frame batching would freeze the unread counter and `onUnreadChanged`. Without frames, changes are applied on the next event-loop turn.
+
+**D52. `cacheExtent` is used although deprecated in Flutter 3.41+.**
+Its replacement does not exist in Flutter 3.24, the minimum version.
+
+**D53. App lifecycle.**
+`paused`, `hidden` and `detached` save the position with `SaveReason.appPaused`; on the web, hiding or closing the tab reports `hidden`, so no `dart:html` listener is needed. `SaveReason.pageHide` is reserved.
+
+**D54. Not in the view yet:** jump animations and highlight (milestone 4), remove/appear animations (5), default themed widgets, floating day chip, geometry API, keyboard shortcuts, semantics order (6), debug overlay (8). Without builders the edges, loading, empty and error states render nothing.
+
+**D55. The stress test compares frames where holding the anchor is possible.**
+A frame is skipped when the list is pinned, still settling, or within 700 px of an end of the content (deleting can then leave less content than the distance to the end, and the physics must move the list). At least 80% of the 600 frames per run are compared.
+
 ## Known limits
 
 **L1. Stale pages are the controller's job.** The store accepts whatever it is given. Two cases can make a late page wrong and are excluded in the property test: a late "this is the newest" answer, and a page fetched before an orphan was evicted. Generations and single flight (§15, milestone 2) drop such pages before they reach the store.
@@ -136,3 +186,5 @@ The first read starts a `readDebounce` timer; later reads don't restart it, so c
 **L3. A page whose items were all deleted locally makes no progress.** The edge then shows an error instead of fetching the same page forever; retry works once the tombstones expire (5 min).
 
 **L4. A window smaller than the viewport plus one page can't page smoothly.** With tiny items or a huge viewport, raise `windowSize` (see D36).
+
+**L5. Many rows inserted at once exactly at the center boundary are laid out one per layout cycle.** `RenderSliverList` adds one leading child per cycle when it sits at scroll offset 0. A batch of more than ten late messages landing exactly between the two lists can take more than one frame to settle.

@@ -14,12 +14,14 @@ class MessageListConfig {
     this.firstOpenPageSize = 20,
     this.windowSize = 80,
     this.preloadExtent = 1500,
+    this.cacheExtent = 800,
     this.stickToBottomThreshold = 24,
     this.scrollDownButtonThreshold = 1.0,
     this.unreadDividerTopInset = 10,
     this.persistDebounce = const Duration(milliseconds: 800),
     this.readDebounce = const Duration(milliseconds: 300),
     this.readDwell = const Duration(milliseconds: 100),
+    this.groupingGap = const Duration(minutes: 5),
     this.restoreIslandsAfterRestart = false,
     this.snapshotLoadBudget = const Duration(milliseconds: 50),
   });
@@ -35,6 +37,9 @@ class MessageListConfig {
 
   /// Load more when the viewport is this close (px) to a window edge.
   final double preloadExtent;
+
+  /// Pixels built outside the viewport on each side.
+  final double cacheExtent;
 
   /// The list counts as "at bottom" within this distance (px).
   final double stickToBottomThreshold;
@@ -54,6 +59,9 @@ class MessageListConfig {
 
   /// How long a message must stay visible to count as read.
   final Duration readDwell;
+
+  /// Messages of one sender further apart than this start a new group.
+  final Duration groupingGap;
 
   /// Whether a persisted position outside the live segment is restored
   /// after a restart (Telegram: no).

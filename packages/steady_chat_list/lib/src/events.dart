@@ -167,6 +167,19 @@ final class CallbackError extends MessageListDiagnostic {
   String toString() => 'CallbackError($callback: $error)';
 }
 
+/// The view moved the scroll offset to keep the anchor still (debug builds
+/// only).
+final class AnchorCorrected extends MessageListDiagnostic {
+  /// Creates the diagnostic.
+  const AnchorCorrected(this.pixels);
+
+  /// How far the offset was moved.
+  final double pixels;
+
+  @override
+  String toString() => 'AnchorCorrected($pixels px)';
+}
+
 /// Everything a controller reports, as one stream (§13.2). Each event that
 /// has a callback in [MessageListCallbacks] carries the same information.
 ///

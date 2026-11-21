@@ -2,6 +2,33 @@
 
 All packages in this repository share one version.
 
+## 0.1.0-dev.3 — milestone 3: the view
+
+### steady_chat_list
+
+- `MessageListView`: center-keyed scroll view over the controller's window.
+  - First frame at the right place: saved position, first unread (divider 10 px from the top) or bottom.
+  - No movement when pages load, the window is trimmed, messages are inserted or deleted, media resizes, the keyboard opens, the footer grows or the width changes.
+  - A delete above the viewport moves nothing.
+  - Pinned to the bottom for incoming messages, keyboard and footer; content shorter than the viewport sits at the bottom.
+  - Albums (`groupBuilder`), day headers (`dayHeaderBuilder`, `onDayTap`), unread divider, edge rows with retry, history start, footer, loading / empty / error builders, padding, scrollbar switch.
+  - One message change rebuilds one row.
+  - Saves the position when the app is paused or the tab is hidden.
+- `AnchoredScrollPosition` and `AnchoredScrollHost`.
+- `MessageItemInfo` (group, day, unread, send and read flags), `SendState`, builder typedefs.
+- Controller: `listenableFor`, `keyBefore` / `keyAfter`, `sendStateOf`, `lastReadOutbox`, `windowEndsAtNewest`, `reportDiagnostic`; `AnchorCorrected` diagnostic; `cacheExtent` and `groupingGap` in the config.
+- Fixes found by the view tests: no second page on stale metrics, visible rows are never unmounted by a trim, counters keep updating in the background.
+
+### Tests
+
+- Acceptance tests 1, 2, 5, 6, 18, 19 and the visual half of 4.
+- Stress test: random inserts, deletes and resizes above, inside and below the viewport every frame for 10 s, three seeds, rows above and below the center. Largest anchor movement: 0 px. Passes on the Dart VM, Chrome and Android (API 35 emulator).
+- 78 tests in `steady_chat_list` (99.8% line coverage), 85 in `steady_chat_list_core` (100%).
+
+### benchmarks
+
+- Host app with `integration_test/anchor_stress_test.dart` to run the stress test on a device.
+
 ## 0.1.0-dev.2 — milestone 2: hub and headless controller
 
 ### steady_chat_list_core
