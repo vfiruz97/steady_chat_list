@@ -89,6 +89,19 @@ The fling is where the web differs from native: two frames of 3,888 took longer 
 
 Two tabs sharing the Drift cache were also tried for real in this Chrome: a message sent in one tab appears in the other, once, through the shared database (the tabs' simulated servers are separate, so it can only have come from the cache).
 
+### macOS arm64 again on Flutter 3.47.5 (Dart 3.13.4)
+
+The repository moved from Flutter 3.50.1 to 3.47.5 for development. Same machine, same code, profile mode: no difference beyond run-to-run noise.
+
+| Scenario | Flutter 3.50.1 | Flutter 3.47.5 |
+| --- | --- | --- |
+| Fling: build p50 / p95 / max | 0.54 / 1.78 / 6.4 ms | 0.52 / 1.77 / 5.9 ms |
+| Open a cached chat: first-frame build median / max | 5.5 / 6.8 ms | 6.2 / 6.8 ms |
+| Jumps: server max / in memory max | 571 / 421 ms | 571 / 421 ms |
+| 50 incoming messages/s: build p95 / max | 2.37 / 3.5 ms | 2.36 / 3.5 ms |
+| 200 reactions/s: build p95 / max | 1.41 / 6.0 ms | 1.36 / 4.6 ms |
+| Memory after 100,000 scrolled | 1,000 messages; 194 → 210 MB | 1,000 messages; 187 → 209 MB |
+
 ### The fling in Chrome, before and after the fix of D116 and D117
 
 The slow frames of the fling were traced (`BENCH fling slow frames` in the output lists the slowest frames with what they did). Two causes were in the package and are fixed: the framework built a row at every index that became free when the window shifted (about 35 rows in one frame, all far from the viewport), and skewed distance estimates made the window bounce between two positions when a page arrived.
