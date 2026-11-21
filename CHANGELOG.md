@@ -2,6 +2,25 @@
 
 All packages in this repository share one version.
 
+## 0.1.0-dev.6 — milestone 5: sending, incoming and deletes
+
+### steady_chat_list
+
+- `insertLocal({id, build})`: optimistic sending. The list goes to the bottom, the message fades in; `LocalAcked` swaps it in place and keeps its widget state (also when acks arrive out of order); `LocalFailed` shows `SendState.failed`.
+- Appear animation for new messages (`appearDuration`, `appearTransitionBuilder`, `shouldAnimateInsert`, `MessageItemInfo.isJustAdded`).
+- Delete animation like Telegram: fade, shrink to 30% and slide toward the sender's side, then the row is removed in one step (`removeDuration`, `removeTransitionBuilder`, `shouldAnimateRemove`, `collapseRemovedRows`, `remove(ids, animate: false)`). Local, remote and batch deletes behave the same; a batch finishes together.
+- `stableIdOf`, `nextLocalKey`; `MessageWindow.removing` and `justAdded`; `ItemTransitionBuilder`.
+- Fixed: a list at the bottom could lose its pin when messages arrived faster than frames.
+- Fixed: the unread divider moves at once when the first unread message is deleted.
+
+### steady_chat_list_core
+
+- `StoreDelta.removedMessages`.
+
+### Tests
+
+- Acceptance tests 7, 8 and 9. 140 tests in `steady_chat_list`, 103 in the core.
+
 ## 0.1.0-dev.5 — milestone 4: jumps and search
 
 ### steady_chat_list

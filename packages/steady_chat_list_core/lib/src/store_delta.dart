@@ -41,6 +41,7 @@ final class StoreDelta {
     this.inserted = const [],
     this.updated = const [],
     this.removed = const [],
+    this.removedMessages = const [],
     this.evicted = const [],
     this.replaced = const [],
     this.segmentsChanged = false,
@@ -61,6 +62,11 @@ final class StoreDelta {
 
   /// Keys deleted or cleared.
   final List<MessageKey> removed;
+
+  /// The messages of [removed], in the same order (each is the app's
+  /// message type). They are no longer in the store; a view can keep
+  /// showing them while they animate out.
+  final List<Object?> removedMessages;
 
   /// Keys dropped from memory by eviction (they still exist on the server).
   final List<MessageKey> evicted;

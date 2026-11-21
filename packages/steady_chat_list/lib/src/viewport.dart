@@ -160,6 +160,8 @@ final class MessageWindow {
     required this.list,
     required this.keys,
     this.unreadDividerBefore,
+    this.removing = const {},
+    this.justAdded = const {},
     this.placement,
     this.placementSerial = 0,
     this.generation = 0,
@@ -173,6 +175,14 @@ final class MessageWindow {
 
   /// The key the unread divider is shown before, if any.
   final MessageKey? unreadDividerBefore;
+
+  /// Ids of deleted messages that are still in [keys] while they animate
+  /// out.
+  final Set<String> removing;
+
+  /// Ids of messages that just arrived or were just sent (they play the
+  /// appear animation).
+  final Set<String> justAdded;
 
   /// Where to put the window. Applied once per [placementSerial]; otherwise
   /// the view keeps its position.

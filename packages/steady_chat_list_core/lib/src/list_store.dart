@@ -674,6 +674,7 @@ final class ListStore<M> {
     _tombstones[id] = _clock();
     final key = _keyById[id];
     if (key == null) return;
+    d.removedMessages.add(_byKey[key]);
     _removeRaw(key);
     _sendErrors.remove(id);
     _shrinkAfterRemoval(key, d);
@@ -712,6 +713,7 @@ final class ListStore<M> {
     final existing = _keyById[serverKey.id];
     if (existing != null || isTombstoned(serverKey.id)) {
       // The server message arrived (or was deleted) before the ack.
+      final local = _byKey[localKey];
       _removeRaw(localKey);
       _sendErrors.remove(localId);
       _shrinkAfterRemoval(localKey, d);
@@ -720,6 +722,7 @@ final class ListStore<M> {
         _upsert(server, d, place: true);
       } else {
         d.removed.add(localKey);
+        d.removedMessages.add(local);
       }
       return;
     }
@@ -747,6 +750,7 @@ final class ListStore<M> {
       k = _byKey.firstKeyAfter(k);
     }
     for (final key in doomed) {
+      d.removedMessages.add(_byKey[key]);
       _removeRaw(key);
       _sendErrors.remove(key.id);
     }
@@ -1078,6 +1082,7 @@ final class _DeltaBuilder {
   final List<MessageKey> inserted = <MessageKey>[];
   final List<MessageKey> updated = <MessageKey>[];
   final List<MessageKey> removed = <MessageKey>[];
+  final List<Object?> removedMessages = <Object?>[];
   final List<MessageKey> evicted = <MessageKey>[];
   final List<KeyReplacement> replaced = <KeyReplacement>[];
   bool segments = false;
@@ -1091,6 +1096,7 @@ final class _DeltaBuilder {
         inserted: inserted,
         updated: updated,
         removed: removed,
+        removedMessages: removedMessages,
         evicted: evicted,
         replaced: replaced,
         segmentsChanged: segments,

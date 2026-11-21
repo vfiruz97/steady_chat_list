@@ -272,14 +272,16 @@ void main() {
     final visible = h.visible;
     final ys = [for (final o in visible) h.yOf(o)!];
     h.controller.remove(['m${visible.first - 20}', 'm${visible.first - 40}']);
-    await tester.pump();
-    await tester.pump();
-    expect([for (final o in visible) h.yOf(o)!], ys);
+    // While the rows fade out, when they are removed, and after.
+    for (var frame = 0; frame < 24; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      expect([for (final o in visible) h.yOf(o)!], ys, reason: 'frame $frame');
+    }
+    expect(h.yOf(visible.first - 20), isNull);
 
     // Inside the viewport: rows above stay, rows below move up.
     h.controller.remove(['m${visible[3]}']);
-    await tester.pump();
-    await tester.pump();
+    await h.settle(const Duration(milliseconds: 300));
     expect(h.yOf(visible[2]), ys[2]);
     expect(h.yOf(visible[4]), ys[3]);
     await h.dispose();

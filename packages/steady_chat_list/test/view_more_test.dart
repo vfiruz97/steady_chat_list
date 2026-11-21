@@ -110,14 +110,14 @@ void main() {
 
     // Deleting one photo re-lays out the row; deleting all removes it.
     h.controller.remove(['m9920']);
-    await _settle(tester, 2);
+    await _settle(tester, 7);
     expect(find.text('2 photos'), findsOneWidget);
     h.controller.remove(['m9910']);
-    await _settle(tester, 2);
+    await _settle(tester, 7);
     expect(find.byKey(const ValueKey('album')), findsNothing);
     expect(h.item(9930), findsOneWidget, reason: 'a single message now');
     h.controller.remove(['m9930']);
-    await _settle(tester, 2);
+    await _settle(tester, 7);
     expect(h.item(9930), findsNothing);
     expect(h.bottomOf(10000), 600);
     await _dispose(tester, h.controller);

@@ -104,7 +104,7 @@ void main() {
         messages[29] = const Msg(300, rev: 3);
         messages.removeAt(27);
       });
-      await _settle(tester, 3);
+      await _settle(tester, 7);
       expect(tester.getSize(_find(300)).height, 80);
       expect(_find(280), findsNothing);
       expect(tester.getBottomLeft(_find(310)).dy, 600);
@@ -238,7 +238,7 @@ void main() {
           if (i != 99) Msg(i * 10, rev: i == 100 ? 2 : 0),
         const Msg(1010),
       ]);
-      await _settle(tester, 3);
+      await _settle(tester, 7);
       expect(_find(990), findsNothing);
       expect(tester.getSize(_find(1000)).height, 70);
       expect(tester.getBottomLeft(_find(1010)).dy, 600);

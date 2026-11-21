@@ -72,6 +72,13 @@ Future<double> runAnchorStress(
     if (comparable) compared++;
     final visible = h.visible;
     expect(visible, isNotEmpty, reason: 'frame $f: nothing on screen');
+    // A row that is fading out after a delete is not an anchor.
+    final removing = h.controller.window.value.removing;
+    visible.removeWhere((order) => removing.contains('m$order'));
+    if (visible.length < 2) {
+      await tester.pump(frame);
+      continue;
+    }
     final anchor = visible.first;
     final before = h.yOf(anchor)!;
     final window = h.controller.window.value.keys;
@@ -122,7 +129,11 @@ Future<double> runAnchorStress(
       lessThanOrEqualTo(1.0),
       reason: 'frame $f (seed $seed): the anchor moved $moved px',
     );
-    expect(h.controller.window.value.keys.length, lessThanOrEqualTo(80));
+    final shown = h.controller.window.value;
+    expect(
+      shown.keys.length - shown.removing.length,
+      lessThanOrEqualTo(80),
+    );
   }
   expect(compared, greaterThan(frames * 0.8), reason: 'too few frames checked');
   expect(inserted, greaterThan(frames ~/ 10));

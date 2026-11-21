@@ -49,6 +49,8 @@ class MessageListView<M> extends StatefulWidget {
     this.physics,
     this.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.onDrag,
     this.scrollbar = true,
+    this.appearTransitionBuilder,
+    this.removeTransitionBuilder,
   });
 
   /// Decides what is shown.
@@ -102,6 +104,15 @@ class MessageListView<M> extends StatefulWidget {
 
   /// Whether desktop and web show a scrollbar.
   final bool scrollbar;
+
+  /// Animates a message that just arrived or was just sent; the animation
+  /// goes 0 → 1. Default: a fade-in.
+  final ItemTransitionBuilder? appearTransitionBuilder;
+
+  /// Animates a deleted message out; the animation goes 0 → 1. Default,
+  /// like Telegram: fade out, shrink to 30% and slide toward the sender's
+  /// side.
+  final ItemTransitionBuilder? removeTransitionBuilder;
 
   @override
   State<MessageListView<M>> createState() => _MessageListViewState<M>();
@@ -340,12 +351,26 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
       final current = controller.sendStateOf(first);
       final group = adapter.groupIdOf(firstMessage);
       final flashed = flash != null && rowKeys.contains(flash.key);
+      final removing = window.removing.isNotEmpty &&
+          rowKeys.every((key) => window.removing.contains(key.id));
+      final justAdded = window.justAdded.isNotEmpty &&
+          rowKeys.any((key) => window.justAdded.contains(key.id));
       final row = _Row(
-        id: rowKeys.length > 1 && group != null ? 'album:$group' : first.id,
+        id: rowKeys.length > 1 && group != null
+            ? 'album:$group'
+            : controller.stableIdOf(first),
         keys: rowKeys,
         day: firstInDay ? day : null,
         divider: rowKeys.contains(window.unreadDividerBefore),
         flash: flashed ? flash.serial : null,
+        removing: removing,
+        justAdded: justAdded,
+        outgoing: adapter.isOutgoing(firstMessage),
+        // The header leaves with the row when no other row of its day is
+        // left to carry it.
+        headerLeaves: removing &&
+            firstInDay &&
+            (after == null || grouping.dayOf(adapter, after) != day),
         info: MessageItemInfo(
           key: first,
           isFirstInGroup: before == null ||
@@ -354,6 +379,7 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
               !grouping.sameGroup(adapter, lastMessage, after, gap),
           isFirstInDay: firstInDay,
           isFirstUnread: rowKeys.contains(window.unreadDividerBefore),
+          isJustAdded: justAdded,
           isLocal: first.isLocal,
           sendState: current,
           isRead: current == SendState.sent && outbox != null && last <= outbox,
@@ -809,6 +835,7 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
           key: row.row.keys.first,
           top: top - pixels,
           height: row.height,
+          isRemoving: row.row.removing,
         ),
     ]);
     // The picked row first, then the rows after it as fallbacks.
@@ -927,6 +954,10 @@ final class _Row {
     required this.day,
     required this.divider,
     this.flash,
+    this.removing = false,
+    this.justAdded = false,
+    this.outgoing = false,
+    this.headerLeaves = false,
   });
 
   final String id;
@@ -938,6 +969,18 @@ final class _Row {
   /// Serial of the flash on this row, if it is the jump target.
   final int? flash;
 
+  /// Every message of the row was deleted; it is animating out.
+  final bool removing;
+
+  /// The row plays the appear animation.
+  final bool justAdded;
+
+  /// The row's (first) message was sent by the user.
+  final bool outgoing;
+
+  /// The day header animates out with the row.
+  final bool headerLeaves;
+
   @override
   bool operator ==(Object other) {
     if (other is! _Row ||
@@ -945,6 +988,9 @@ final class _Row {
         other.day != day ||
         other.divider != divider ||
         other.flash != flash ||
+        other.removing != removing ||
+        other.justAdded != justAdded ||
+        other.headerLeaves != headerLeaves ||
         other.info != info ||
         other.keys.length != keys.length) {
       return false;
@@ -969,13 +1015,25 @@ class _RowWidget<M> extends StatefulWidget {
   State<_RowWidget<M>> createState() => _RowWidgetState<M>();
 }
 
-class _RowWidgetState<M> extends State<_RowWidget<M>> {
+class _RowWidgetState<M> extends State<_RowWidget<M>>
+    with TickerProviderStateMixin {
   List<Listenable> _sources = const [];
+  AnimationController? _appear;
+  AnimationController? _remove;
+  Animation<double> _removeContent = kAlwaysDismissedAnimation;
+  Animation<double> _removeSize = kAlwaysCompleteAnimation;
 
   @override
   void initState() {
     super.initState();
     _subscribe();
+    final config = widget.host._controller.config;
+    if (widget.row.justAdded) {
+      _appear =
+          AnimationController(vsync: this, duration: config.appearDuration)
+            ..forward();
+    }
+    _startRemoveIfNeeded();
   }
 
   @override
@@ -983,12 +1041,37 @@ class _RowWidgetState<M> extends State<_RowWidget<M>> {
     super.didUpdateWidget(oldWidget);
     _unsubscribe();
     _subscribe();
+    _startRemoveIfNeeded();
   }
 
   @override
   void dispose() {
     _unsubscribe();
+    _appear?.dispose();
+    _remove?.dispose();
     super.dispose();
+  }
+
+  void _startRemoveIfNeeded() {
+    if (!widget.row.removing || _remove != null) return;
+    final config = widget.host._controller.config;
+    final collapse = config.collapseRemovedRows;
+    final remove = _remove = AnimationController(
+      vsync: this,
+      // With a collapsing row the second half closes the gap.
+      duration: collapse ? config.removeDuration * 2 : config.removeDuration,
+    )..forward();
+    _removeContent = CurvedAnimation(
+      parent: remove,
+      curve: collapse
+          ? const Interval(0, 0.5, curve: Curves.easeIn)
+          : Curves.easeIn,
+    );
+    if (collapse) {
+      _removeSize = ReverseAnimation(
+        CurvedAnimation(parent: remove, curve: const Interval(0.5, 1)),
+      );
+    }
   }
 
   void _subscribe() {
@@ -1017,30 +1100,55 @@ class _RowWidgetState<M> extends State<_RowWidget<M>> {
     final host = widget.host;
     final view = host.widget;
     final row = widget.row;
+    final controller = host._controller;
+    final collapse = controller.config.collapseRemovedRows;
     final messages = <M>[];
     for (final key in row.keys) {
-      final message = host._controller.messageOf(key);
+      final message = controller.messageOf(key);
       if (message != null) messages.add(message);
+    }
+    // The delivery state can change without the window changing.
+    var info = row.info;
+    final state = controller.sendStateOf(row.keys.first);
+    if (state != info.sendState) {
+      info = info.withSendState(state,
+          isLocal: state == SendState.sending || state == SendState.failed);
     }
     Widget child;
     if (messages.isEmpty) {
       child = const SizedBox.shrink();
     } else if (messages.length == 1) {
-      child = view.itemBuilder(context, messages.first, row.info);
+      child = view.itemBuilder(context, messages.first, info);
     } else if (view.groupBuilder != null) {
-      child = view.groupBuilder!(context, messages, row.info);
+      child = view.groupBuilder!(context, messages, info);
     } else {
       child = Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (final message in messages)
-            view.itemBuilder(context, message, row.info),
+            view.itemBuilder(context, message, info),
         ],
       );
     }
+
+    // The same wrappers are always there (with constant animations when
+    // nothing moves), so starting an animation never rebuilds the item.
+    final removing = _removeContent;
+    Widget animate(Widget content) {
+      final appear = view.appearTransitionBuilder ?? _defaultAppear;
+      final remove = view.removeTransitionBuilder ?? _defaultRemove;
+      return remove(
+        context,
+        removing,
+        appear(context, _appear ?? kAlwaysCompleteAnimation, content, info),
+        info,
+      );
+    }
+
     final day = row.day;
     final header = day == null ? null : view.dayHeaderBuilder;
+    if (!row.headerLeaves) child = animate(child);
     if (header != null || row.divider) {
       child = Column(
         mainAxisSize: MainAxisSize.min,
@@ -1055,6 +1163,22 @@ class _RowWidgetState<M> extends State<_RowWidget<M>> {
         ],
       );
     }
+    if (row.headerLeaves) child = animate(child);
+    if (collapse) {
+      // The gap closes from the bottom; the row stays top-aligned.
+      final size = _removeSize;
+      child = AnimatedBuilder(
+        animation: size,
+        builder: (context, child) => ClipRect(
+          child: Align(
+            alignment: Alignment.topCenter,
+            heightFactor: size.value,
+            child: child,
+          ),
+        ),
+        child: child,
+      );
+    }
     final padding = view.padding;
     if (padding.left != 0 || padding.right != 0) {
       child = Padding(
@@ -1062,7 +1186,47 @@ class _RowWidgetState<M> extends State<_RowWidget<M>> {
         child: child,
       );
     }
-    return _RowBoundary(row: row, registry: host._registry, child: child);
+    return _RowBoundary(
+      row: row,
+      registry: host._registry,
+      child: IgnorePointer(ignoring: row.removing, child: child),
+    );
+  }
+
+  Widget _defaultAppear(
+    BuildContext context,
+    Animation<double> animation,
+    Widget child,
+    MessageItemInfo info,
+  ) =>
+      FadeTransition(opacity: animation, child: child);
+
+  /// Telegram's delete: fade to 0, shrink to 0.3 and slide toward the
+  /// sender's side (mirrored in right-to-left layouts).
+  Widget _defaultRemove(
+    BuildContext context,
+    Animation<double> animation,
+    Widget child,
+    MessageItemInfo info,
+  ) {
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    final toRight = widget.row.outgoing != rtl;
+    return FadeTransition(
+      opacity: ReverseAnimation(animation),
+      child: AnimatedBuilder(
+        animation: animation,
+        builder: (context, child) {
+          final t = animation.value;
+          return Transform(
+            alignment: toRight ? Alignment.centerRight : Alignment.centerLeft,
+            transform: Matrix4.diagonal3Values(1 - 0.7 * t, 1 - 0.7 * t, 1)
+              ..setTranslationRaw((toRight ? 48.0 : -48.0) * t, 0, 0),
+            child: child,
+          );
+        },
+        child: child,
+      ),
+    );
   }
 }
 

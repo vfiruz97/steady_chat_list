@@ -48,6 +48,17 @@ class ListHarness {
   /// Wraps items in the default jump flash.
   bool flash = false;
 
+  /// Right-to-left layout.
+  bool rtl = false;
+
+  /// Ids of the items whose `State` was created, in order (one entry per
+  /// `initState`).
+  final List<String> inits = [];
+
+  /// Optional custom transitions.
+  ItemTransitionBuilder? appearBuilder;
+  ItemTransitionBuilder? removeBuilder;
+
   /// Width-dependent heights (text reflow): height = area / width.
   double? area;
 
@@ -69,7 +80,7 @@ class ListHarness {
   }
 
   Widget build() => Directionality(
-        textDirection: TextDirection.ltr,
+        textDirection: rtl ? TextDirection.rtl : TextDirection.ltr,
         child: Align(
           alignment: Alignment.topLeft,
           child: SizedBox(
@@ -87,9 +98,13 @@ class ListHarness {
                         (area == null ? 50 : area! / constraints.maxWidth),
                   ),
                 );
-                return flash
-                    ? JumpHighlightBackground(info: info, child: item)
-                    : item;
+                return _Probe(
+                  id: message.id,
+                  inits: inits,
+                  child: flash
+                      ? JumpHighlightBackground(info: info, child: item)
+                      : item,
+                );
               },
               dayHeaderBuilder: dayHeaders
                   ? (context, day, onTap) => SizedBox(
@@ -98,6 +113,8 @@ class ListHarness {
                         height: 24,
                       )
                   : null,
+              appearTransitionBuilder: appearBuilder,
+              removeTransitionBuilder: removeBuilder,
               unreadDividerBuilder: (context) =>
                   const SizedBox(key: ValueKey('divider'), height: 30),
               footerBuilder: (context) =>
@@ -129,6 +146,21 @@ class ListHarness {
   /// Also finds items built in the cache area, outside the viewport.
   Finder item(int order) =>
       find.byKey(ValueKey('item-m$order'), skipOffstage: false);
+
+  /// An item by message id (for local messages).
+  Finder itemById(String id) =>
+      find.byKey(ValueKey('item-$id'), skipOffstage: false);
+
+  /// The opacity of the nearest fade around an item (1 when not fading).
+  double opacityOf(Finder item) {
+    final fades =
+        find.ancestor(of: item, matching: find.byType(FadeTransition));
+    var opacity = 1.0;
+    for (final element in fades.evaluate()) {
+      opacity *= (element.widget as FadeTransition).opacity.value;
+    }
+    return opacity;
+  }
 
   /// The y of the top edge of a built item, or null.
   double? yOf(int order) {
@@ -182,4 +214,28 @@ class ListHarness {
     controller.dispose();
     await tester.pump(const Duration(seconds: 40));
   }
+}
+
+/// Records when an item's `State` is created: a message that keeps its
+/// widget identity is created once.
+class _Probe extends StatefulWidget {
+  const _Probe({required this.id, required this.inits, required this.child});
+
+  final String id;
+  final List<String> inits;
+  final Widget child;
+
+  @override
+  State<_Probe> createState() => _ProbeState();
+}
+
+class _ProbeState extends State<_Probe> {
+  @override
+  void initState() {
+    super.initState();
+    widget.inits.add(widget.id);
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

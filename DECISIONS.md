@@ -172,7 +172,7 @@ Its replacement does not exist in Flutter 3.24, the minimum version.
 **D53. App lifecycle.**
 `paused`, `hidden` and `detached` save the position with `SaveReason.appPaused`; on the web, hiding or closing the tab reports `hidden`, so no `dart:html` listener is needed. `SaveReason.pageHide` is reserved.
 
-**D54. Not in the view yet:** remove/appear animations (5), theming, floating day chip, geometry API, keyboard shortcuts, semantics order (6), debug overlay (8).
+**D54. Not in the view yet:** theming, floating day chip, geometry API, keyboard shortcuts, semantics order (6), debug overlay (8).
 
 **D55. The stress test compares frames where holding the anchor is possible.**
 A frame is skipped when the list is pinned, still settling, or within 700 px of an end of the content (deleting can then leave less content than the distance to the end, and the physics must move the list). At least 80% of the 600 frames per run are compared.
@@ -230,6 +230,31 @@ The controller sets `highlighted` and emits `highlightEnded` after `delay + dura
 **D73. `reselect()` stays `void`** (as specified) and reports through `onJump`. `switchTo` with a message target on the open list is a jump with `JumpReason.deepLink`.
 
 **D74. Not done from §10.4:** moving accessibility focus to the target on arrival (milestone 6, with semantics).
+
+## Sending, updates and deletes (§10.6, §10.7)
+
+**D75. `insertLocal({id, build})` takes a builder.**
+The specification passes a ready message, but the key of a pending message depends on the newest loaded message, and the list can't write a key into the app's message class. `build` receives the key the message must carry. If the newest messages are not loaded (the list shows an island), they are loaded first, so the pending message sorts after the real newest one.
+
+**D76. A message keeps the widget id it was first shown with.**
+`controller.stableIdOf(key)` maps a confirmed message back to the client id it was sent with, for as long as it is in the window. The row keeps its element and `State` through the ack (test 9). Out-of-order acks reorder rows by server key without recreating them.
+
+**D77. A confirmed message sorts by its server key, pending ones stay right after the message that was newest when they were sent.** So when a later send is confirmed first it moves below the ones still pending, as in Telegram.
+
+**D78. Deleted rows stay as "ghosts" until their animation ends.**
+The store deletes at once (so counters, paging and the unread divider are right immediately). The controller keeps the deleted message in the window for `removeDuration` (`MessageWindow.removing`), the row plays the remove transition and ignores touches, then the row is removed in one step, or its height closes during a second `removeDuration` with `collapseRemovedRows`. All deletes of one frame form one batch: they finish together with one correction. The anchor is never a row that is being removed.
+
+**D79. The transition wrappers are always present.**
+Every row is wrapped in the appear and remove transitions with constant animations while nothing moves. Adding a wrapper when an animation starts would recreate the item's element and lose its state.
+
+**D80. The day header leaves with the row only when no other row of that day remains**; otherwise it moves to the next row of the day when the row is removed.
+
+**D81. Delivery state is read when a row builds**, so `LocalFailed` rebuilds one row and does not publish a window.
+
+**D82. "Ends at the newest message" is judged against what the controller has processed.**
+Events reach the store at once and the window once per frame. A window published in between (an appear mark ending, a page growing) compared itself with the store's newest key, concluded it had fallen behind and lost the bottom pin for good. Found by the 50 messages per second test.
+
+**D83. After deletes at a window edge the window stays in the reader's segment** even if the nearest remaining key is an orphan or belongs to another island.
 
 ## Known limits
 

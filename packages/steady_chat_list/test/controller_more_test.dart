@@ -84,6 +84,61 @@ void main() {
     });
   });
 
+  test('everything deleted at once, some of it without animation', () {
+    run(
+      env: (async) => Env(async, count: 20),
+      (env) {
+        final controller = env.controller()..open();
+        final view = FakeViewport(controller);
+        env.settle();
+        final ids = [for (final key in view.keys) key.id];
+        controller.remove(ids.sublist(0, 10), animate: false);
+        controller.remove(ids.sublist(10));
+        env.settle(Duration.zero);
+        expect(view.keys, hasLength(10), reason: 'only the fading ones');
+        expect(controller.window.value.removing, hasLength(10));
+        env.settle();
+        expect(view.keys, isEmpty);
+        expect(controller.phase.value, ListPhase.empty);
+      },
+    );
+  });
+
+  test('a page that brings nothing usable stops with an edge error', () {
+    run(
+      env: (async) => Env(async, count: 300),
+      (env) {
+        final controller = env.controller()..open();
+        final view = FakeViewport(controller);
+        env.settle();
+        // The next older page was deleted here a moment ago; the server
+        // still returns it.
+        final first = view.keys.first.order;
+        controller
+            .remove([for (var o = first - 400; o < first; o += 10) 'm$o']);
+        view.scrollToTop();
+        env.settle();
+        final edge = controller.olderEdge.value;
+        expect(edge, isA<EdgeError>());
+        expect('${(edge as EdgeError).error}', contains('no usable keys'));
+        // A retry that fails differently replaces the error.
+        env.server.failNextFetches = 100;
+        controller.retry(ListEdge.older);
+        env.settle(const Duration(seconds: 10));
+        final again = controller.olderEdge.value as EdgeError;
+        expect('${again.error}', contains('offline'));
+        env.server.failNextFetches = 100;
+        controller.retry(ListEdge.older);
+        env.settle(const Duration(seconds: 10));
+        expect(
+          identical(
+              (controller.olderEdge.value as EdgeError).error, again.error),
+          isFalse,
+        );
+      },
+    );
+  });
+
   test('part of the window deleted: the rest stays', () {
     run((env) {
       final controller = env.controller()..open();
@@ -92,6 +147,10 @@ void main() {
       final keys = view.keys;
       controller.remove([keys.first.id, keys.last.id]);
       env.settle(Duration.zero);
+      expect(controller.window.value.removing, hasLength(2));
+      expect(view.keys, keys, reason: 'still there while they fade out');
+      env.settle(const Duration(milliseconds: 300));
+      expect(controller.window.value.removing, isEmpty);
       expect(view.keys.first, keys[1]);
       expect(view.keys.last, keys[keys.length - 2]);
     });

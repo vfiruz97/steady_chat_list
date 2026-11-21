@@ -226,6 +226,10 @@ void main() {
         const MessagesDeleted<Msg>(chat, ['m810', 'm1000', 'm900']),
       );
       expect(orders(delta.removed), [810, 1000, 900]);
+      expect(
+        [for (final m in delta.removedMessages) (m! as Msg).order],
+        [810, 1000, 900],
+      );
       expect(store.segments, [
         Segment(first: k(820), last: k(990), reachedNewest: true),
       ]);

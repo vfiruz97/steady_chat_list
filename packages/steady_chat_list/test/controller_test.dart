@@ -748,7 +748,7 @@ void main() {
         env.settle();
         env.events.clear();
         controller.patch('m10000', (m) => Msg(m.order, rev: m.rev + 1));
-        controller.remove(['m9990']);
+        controller.remove(['m9990'], animate: false);
         controller.upsert([const Msg(10010)]);
         controller.setReadState(
           ReadState(lastReadInbox: k(10000), unreadCount: 7),

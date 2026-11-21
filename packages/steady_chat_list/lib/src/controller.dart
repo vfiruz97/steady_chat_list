@@ -126,6 +126,17 @@ class MessageListController<M> extends ChangeNotifier {
   // Persistence.
   Timer? _persistTimer;
 
+  // Rows that animate: deleted messages stay as ghosts until their
+  // animation ended; new messages are marked for their appear animation.
+  final Map<String, ({MessageKey key, M message})> _ghosts = {};
+  final Set<String> _unanimatedRemovals = {};
+  final Set<String> _justAdded = {};
+  final List<Timer> _animationTimers = [];
+  bool _animationsChanged = false; // ghosts or appear marks to publish
+  // A message keeps the id it was first shown with (a local message keeps
+  // its client id after the ack), so its widget state survives.
+  final Map<String, String> _stableIds = {};
+
   // Per-item change notifiers (one bubble rebuilds, not the list).
   final Map<String, _ItemNotifier> _items = {};
 
@@ -288,7 +299,13 @@ class MessageListController<M> extends ChangeNotifier {
   /// ```dart
   /// final message = controller.messageOf(window.keys.first);
   /// ```
-  M? messageOf(MessageKey key) => _shownStore?.messageOf(key.id);
+  M? messageOf(MessageKey key) =>
+      _shownStore?.messageOf(key.id) ?? _ghosts[key.id]?.message;
+
+  /// The id an item's widget is keyed by. It never changes while the item
+  /// is in the window: a local message keeps its client id after the server
+  /// confirmed it, so its `State` survives.
+  String stableIdOf(MessageKey key) => _stableIds[key.id] ?? key.id;
 
   // ------------------------------------------------------------- lifecycle
 
@@ -1001,7 +1018,59 @@ class MessageListController<M> extends ChangeNotifier {
   /// ```dart
   /// controller.remove(['41', '42']);
   /// ```
-  void remove(List<String> ids) => hub.apply(MessagesDeleted<M>(_list, ids));
+  ///
+  /// With [animate] false the rows disappear at once instead of fading out.
+  void remove(List<String> ids, {bool animate = true}) {
+    if (!animate) _unanimatedRemovals.addAll(ids);
+    hub.apply(MessagesDeleted<M>(_list, ids));
+  }
+
+  /// The key for a pending local message with client id [id]: it sorts
+  /// right after the newest message. [insertLocal] calls this for you.
+  MessageKey? nextLocalKey(String id) => _store?.nextLocalKey(id);
+
+  /// Shows a message the user just sent, before the server confirmed it
+  /// (§10.6). [build] gets the key the message must carry (your adapter's
+  /// `keyOf` has to return it). The list goes to the bottom first unless
+  /// [scrollToBottom] is false.
+  ///
+  /// When the server answers, send `LocalAcked(list, id, serverMessage)` or
+  /// `LocalFailed(list, id, error)` through [apply] or the source's events:
+  /// the item is swapped in place and keeps its widget state.
+  ///
+  /// ```dart
+  /// final key = await controller.insertLocal(
+  ///   id: uuid,
+  ///   build: (key) => ChatMessage.pending(key: key, text: text),
+  /// );
+  /// ```
+  Future<MessageKey?> insertLocal({
+    required String id,
+    required M Function(MessageKey key) build,
+    bool scrollToBottom = true,
+  }) async {
+    var store = _store;
+    if (_disposed || store == null) return null;
+    if (store.liveSegment == null && !store.isKnownEmpty) {
+      // The newest messages are not loaded (the list shows an island): a
+      // local message goes after the real newest one.
+      await _fetchQuietly(
+        _generation,
+        PageDirection.latest,
+        null,
+        _windowPolicy.firstOpenPageSize,
+      );
+      store = _store;
+      if (_disposed || store == null) return null;
+    }
+    final key = store.nextLocalKey(id);
+    hub.apply(MessagesAdded<M>(_list, [build(key)]));
+    if (scrollToBottom) {
+      _flush(); // the message is in the window before the list moves
+      unawaited(jumpToBottom());
+    }
+    return key;
+  }
 
   /// Replaces the read markers and unread counters.
   ///
@@ -1071,6 +1140,14 @@ class MessageListController<M> extends ChangeNotifier {
       timer.cancel();
     }
     _dwell.clear();
+    for (final timer in _animationTimers) {
+      timer.cancel();
+    }
+    _animationTimers.clear();
+    _ghosts.clear();
+    _justAdded.clear();
+    _unanimatedRemovals.clear();
+    _stableIds.clear();
   }
 
   Future<OpenResolution> _open(OpenTarget target) async {
@@ -1361,6 +1438,7 @@ class MessageListController<M> extends ChangeNotifier {
   ) {
     _shownStore = store;
     _keys = keys;
+    _liveLastSeen = store.liveSegment?.last;
     _placement = placement;
     _placementSerial++;
     _metrics = null;
@@ -1371,12 +1449,33 @@ class MessageListController<M> extends ChangeNotifier {
     final store = _shownStore!;
     final keys = _keys;
     final live = store.liveSegment;
-    _endsAtNewest =
-        keys.isNotEmpty && live != null && keys.last.isSamePosition(live.last);
+    // Ghosts (rows animating out) don't count as the end of the window.
+    MessageKey? newestShown;
+    for (var i = keys.length - 1; i >= 0; i--) {
+      if (!_ghosts.containsKey(keys[i].id)) {
+        newestShown = keys[i];
+        break;
+      }
+    }
+    // "Newest" is the newest message this controller has processed: events
+    // reach the store at once but the window once per frame, and in between
+    // the list must not think it fell behind (it would lose its bottom pin).
+    final seen = _liveLastSeen;
+    _endsAtNewest = newestShown != null &&
+        live != null &&
+        (newestShown.isSamePosition(live.last) ||
+            (seen != null && newestShown.isSamePosition(seen)));
     final divider = _dividerKey;
+    // Ids are remembered only for what is in the window.
+    if (_stableIds.isNotEmpty) {
+      final shown = {for (final key in keys) key.id};
+      _stableIds.removeWhere((id, _) => !shown.contains(id));
+    }
     _window.value = MessageWindow(
       list: store.id,
       keys: List<MessageKey>.unmodifiable(keys),
+      removing: _ghosts.isEmpty ? const {} : Set<String>.of(_ghosts.keys),
+      justAdded: _justAdded.isEmpty ? const {} : Set<String>.of(_justAdded),
       unreadDividerBefore:
           divider != null && keys.contains(divider) ? divider : null,
       placement: _placement,
@@ -1491,6 +1590,7 @@ class MessageListController<M> extends ChangeNotifier {
     final updated = <MessageKey>[];
     final deleted = <MessageKey>[];
     final cleared = <MessageKey>[];
+    final removedMessages = <String, M>{};
     var readChanged = false;
     for (final delta in deltas) {
       for (final key in delta.inserted) {
@@ -1510,8 +1610,22 @@ class MessageListController<M> extends ChangeNotifier {
       }
       updated.addAll(delta.updated);
       (delta.historyCleared ? cleared : deleted).addAll(delta.removed);
+      if (!delta.historyCleared) {
+        for (var i = 0; i < delta.removed.length; i++) {
+          final message = i < delta.removedMessages.length
+              ? delta.removedMessages[i]
+              : null;
+          if (message is M) removedMessages[delta.removed[i].id] = message;
+        }
+      }
       for (final replacement in delta.replaced) {
         replaced[replacement.oldKey.id] = replacement.newKey;
+        final oldId = replacement.oldKey.id;
+        final newId = replacement.newKey.id;
+        if (oldId != newId) {
+          _stableIds[newId] = _stableIds.remove(oldId) ?? oldId;
+          _items[oldId]?.changed();
+        }
         _emit(KeyReplaced(_list, replacement.oldKey, replacement.newKey));
       }
       readChanged = readChanged || delta.readStateChanged;
@@ -1539,6 +1653,7 @@ class MessageListController<M> extends ChangeNotifier {
     if (cleared.isNotEmpty) {
       _emit(MessageRemoved(_list, cleared, RemoveCause.historyCleared));
     }
+    _animateChanges(store, [...incoming, ...local], deleted, removedMessages);
     _liveLastSeen = store.liveSegment?.last;
     _readOutbox.value = store.readState.lastReadOutbox;
     _recomputeWindow(store, replaced);
@@ -1564,12 +1679,35 @@ class MessageListController<M> extends ChangeNotifier {
       return store.nearestExisting(key, inward);
     }
 
-    final first = locate(_keys.first, ScanDirection.newer);
+    var first = locate(_keys.first, ScanDirection.newer);
     var last = locate(_keys.last, ScanDirection.older);
+    if (first != null && last != null && !store.isContiguous(first, last)) {
+      // The edges moved onto keys outside the window's segment (an orphan,
+      // or another island after deletes at the edge): stay in the segment
+      // the reader is in.
+      final reader = _anchorKey();
+      final home = (reader == null ? null : store.segmentOf(reader)) ??
+          store.segmentOf(last) ??
+          store.segmentOf(first);
+      if (home != null) {
+        if (first < home.first) first = home.first;
+        if (last > home.last) last = home.last;
+      }
+    }
     if (first == null ||
         last == null ||
         first > last ||
         !store.isContiguous(first, last)) {
+      final ghosts = _ghostKeys();
+      if (ghosts.isNotEmpty) {
+        // Everything that was built is animating out: let it finish.
+        if (!_sameKeys(ghosts, _keys)) {
+          _keys = ghosts;
+          _metricsStale = true;
+          _publish();
+        }
+        return;
+      }
       // Everything that was built is gone.
       _dividerKey = null;
       if (store.liveSegment != null || store.isKnownEmpty) {
@@ -1609,14 +1747,108 @@ class MessageListController<M> extends ChangeNotifier {
             (metrics != null && metrics.extentBefore > metrics.extentAfter),
       );
     }
+    final ghosts = _ghostKeys();
+    if (ghosts.isNotEmpty) keys = [...keys, ...ghosts]..sort();
+    final divider = _dividerKey;
     _moveDividerIfGone(store);
-    if (_sameKeys(keys, _keys)) {
+    final animating = _animationsChanged;
+    _animationsChanged = false;
+    if (_sameKeys(keys, _keys) &&
+        identical(divider, _dividerKey) &&
+        !animating) {
       _updateEdges();
       return;
     }
     _keys = keys;
     _metricsStale = true;
     _publish();
+  }
+
+  /// Ghosts that are part of the current window, oldest first.
+  List<MessageKey> _ghostKeys() {
+    if (_ghosts.isEmpty) return const [];
+    return [
+      for (final key in _keys)
+        if (_ghosts.containsKey(key.id)) key,
+    ];
+  }
+
+  /// Marks new messages for their appear animation and keeps deleted ones
+  /// as ghosts while they animate out (§10.7). One batch per frame: all
+  /// rows of a batch delete go together, with one correction.
+  void _animateChanges(
+    ListStore<M> store,
+    List<MessageKey> added,
+    List<MessageKey> deleted,
+    Map<String, M> removedMessages,
+  ) {
+    if (added.isNotEmpty && config.appearDuration > Duration.zero) {
+      final decide = callbacks.shouldAnimateInsert;
+      final ids = <String>[];
+      for (final key in added) {
+        final message = store.messageOf(key.id);
+        if (message == null) continue;
+        final cause = key.isLocal ? InsertCause.local : InsertCause.incoming;
+        if (decide != null && !_decide(() => decide(message, cause))) continue;
+        ids.add(key.id);
+      }
+      if (ids.isNotEmpty) {
+        _animationsChanged = true;
+        _justAdded.addAll(ids);
+        _later(config.appearDuration, () {
+          _justAdded.removeAll(ids);
+          if (_keys.isNotEmpty) _publish();
+        });
+      }
+    }
+    if (deleted.isEmpty) return;
+    final shown = {for (final key in _keys) key.id};
+    final decide = callbacks.shouldAnimateRemove;
+    final ids = <String>[];
+    for (final key in deleted) {
+      final skip = _unanimatedRemovals.remove(key.id);
+      final message = removedMessages[key.id];
+      if (skip || message == null || !shown.contains(key.id)) continue;
+      if (config.removeDuration <= Duration.zero) continue;
+      if (decide != null && !_decide(() => decide(key, RemoveCause.deleted))) {
+        continue;
+      }
+      _ghosts[key.id] = (key: key, message: message);
+      ids.add(key.id);
+    }
+    if (ids.isEmpty) return;
+    _animationsChanged = true;
+    final lifetime = config.collapseRemovedRows
+        ? config.removeDuration * 2
+        : config.removeDuration;
+    _later(lifetime, () {
+      ids.forEach(_ghosts.remove);
+      _animationsChanged = true;
+      final current = _store;
+      if (current != null && identical(current, _shownStore)) {
+        _recomputeWindow(current, const {});
+        _recomputeUnread();
+      }
+    });
+  }
+
+  /// Asks the app; a throwing callback counts as "yes".
+  bool _decide(bool Function() ask) {
+    try {
+      return ask();
+    } catch (error, stackTrace) {
+      _diagnose(CallbackError('shouldAnimate', error, stackTrace));
+      return true;
+    }
+  }
+
+  void _later(Duration delay, VoidCallback action) {
+    late final Timer timer;
+    timer = Timer(delay, () {
+      _animationTimers.remove(timer);
+      if (!_disposed) action();
+    });
+    _animationTimers.add(timer);
   }
 
   void _moveDividerIfGone(ListStore<M> store) {

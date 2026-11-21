@@ -40,6 +40,7 @@ class MessageItemInfo {
     this.isLastInGroup = true,
     this.isFirstInDay = false,
     this.isFirstUnread = false,
+    this.isJustAdded = false,
     this.isLocal = false,
     this.sendState = SendState.none,
     this.isRead = false,
@@ -64,6 +65,10 @@ class MessageItemInfo {
   /// Whether the unread divider is shown before this message.
   final bool isFirstUnread;
 
+  /// Whether the message just arrived or was just sent (it is playing the
+  /// appear animation).
+  final bool isJustAdded;
+
   /// Whether this is a pending local message.
   final bool isLocal;
 
@@ -86,6 +91,24 @@ class MessageItemInfo {
   /// Position in the window (debug only).
   final int indexInWindow;
 
+  /// A copy with another delivery state.
+  MessageItemInfo withSendState(SendState state, {required bool isLocal}) =>
+      MessageItemInfo(
+        key: key,
+        isFirstInGroup: isFirstInGroup,
+        isLastInGroup: isLastInGroup,
+        isFirstInDay: isFirstInDay,
+        isFirstUnread: isFirstUnread,
+        isJustAdded: isJustAdded,
+        isLocal: isLocal,
+        sendState: state,
+        isRead: isRead,
+        highlight: highlight,
+        highlightQuery: highlightQuery,
+        highlightReason: highlightReason,
+        indexInWindow: indexInWindow,
+      );
+
   @override
   bool operator ==(Object other) =>
       other is MessageItemInfo &&
@@ -95,6 +118,7 @@ class MessageItemInfo {
       other.isLastInGroup == isLastInGroup &&
       other.isFirstInDay == isFirstInDay &&
       other.isFirstUnread == isFirstUnread &&
+      other.isJustAdded == isJustAdded &&
       other.isLocal == isLocal &&
       other.sendState == sendState &&
       other.isRead == isRead &&
@@ -167,4 +191,20 @@ typedef EdgeBuilder = Widget Function(
   ListEdge edge,
   EdgeState state,
   VoidCallback retry,
+);
+
+/// Builds the animation of a row that appears or is removed. [animation]
+/// runs from 0 to 1 while the row animates; when nothing animates it is
+/// constant, and the builder must still return the same widget structure
+/// around [child] (so the item keeps its state).
+///
+/// ```dart
+/// appearTransitionBuilder: (context, animation, child, info) =>
+///     SizeTransition(sizeFactor: animation, child: child),
+/// ```
+typedef ItemTransitionBuilder = Widget Function(
+  BuildContext context,
+  Animation<double> animation,
+  Widget child,
+  MessageItemInfo info,
 );

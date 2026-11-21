@@ -414,6 +414,8 @@ class MessageListCallbacks<M> {
     this.onAtBottomChanged,
     this.onJump,
     this.onCurrentPinnedChanged,
+    this.shouldAnimateInsert,
+    this.shouldAnimateRemove,
     this.onDiagnostic,
   });
 
@@ -468,6 +470,12 @@ class MessageListCallbacks<M> {
 
   /// The pinned message for the current scroll position changed.
   final void Function(ListId list, MessageKey? key)? onCurrentPinnedChanged;
+
+  /// Whether a new message plays the appear animation (default: yes).
+  final bool Function(M message, InsertCause cause)? shouldAnimateInsert;
+
+  /// Whether a deleted message plays the remove animation (default: yes).
+  final bool Function(MessageKey key, RemoveCause cause)? shouldAnimateRemove;
 
   /// A diagnostic was reported.
   final void Function(MessageListDiagnostic diagnostic)? onDiagnostic;

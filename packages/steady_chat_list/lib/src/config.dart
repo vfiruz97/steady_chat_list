@@ -30,6 +30,9 @@ class MessageListConfig {
     this.loadingIndicatorDelay = const Duration(milliseconds: 150),
     this.reselectBehavior = ReselectBehavior.jumpToBottom,
     this.searchDebounce = const Duration(milliseconds: 300),
+    this.appearDuration = const Duration(milliseconds: 200),
+    this.removeDuration = const Duration(milliseconds: 200),
+    this.collapseRemovedRows = false,
   });
 
   /// Messages per page.
@@ -88,4 +91,14 @@ class MessageListConfig {
 
   /// Quiet time after typing before a search query is sent.
   final Duration searchDebounce;
+
+  /// Length of the appear animation of new messages; zero turns it off.
+  final Duration appearDuration;
+
+  /// Length of the animation of a deleted message; zero turns it off.
+  final Duration removeDuration;
+
+  /// Whether the space of a deleted row closes with an animation (another
+  /// [removeDuration]) instead of in one step (Telegram).
+  final bool collapseRemovedRows;
 }
