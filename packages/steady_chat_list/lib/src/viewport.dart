@@ -1,0 +1,154 @@
+import 'dart:ui' show Rect;
+
+import 'package:flutter/foundation.dart';
+import 'package:steady_chat_list_core/steady_chat_list_core.dart';
+
+/// One item on screen.
+///
+/// ```dart
+/// for (final item in metrics.items) {
+///   if (item.visibleFraction == 1) print('${item.key.id} fully visible');
+/// }
+/// ```
+@immutable
+final class VisibleItem {
+  /// Creates a visible item.
+  const VisibleItem({
+    required this.key,
+    required this.rect,
+    required this.visibleFraction,
+  });
+
+  /// The message.
+  final MessageKey key;
+
+  /// The item's rectangle in global coordinates.
+  final Rect rect;
+
+  /// The visible part of the item's height, 0–1.
+  final double visibleFraction;
+}
+
+/// What the view reports to the controller after a layout or a scroll.
+///
+/// The built-in view sends these. Tests and custom views can send them with
+/// `MessageListController.reportViewport`.
+///
+/// ```dart
+/// controller.reportViewport(ViewportMetrics(
+///   viewport: const Rect.fromLTWH(0, 0, 400, 600),
+///   items: visible, extentBefore: 1200, extentAfter: 0));
+/// ```
+@immutable
+final class ViewportMetrics {
+  /// Creates a report.
+  const ViewportMetrics({
+    required this.viewport,
+    required this.items,
+    required this.extentBefore,
+    required this.extentAfter,
+    this.userDragging = false,
+  });
+
+  /// The list's viewport in global coordinates.
+  final Rect viewport;
+
+  /// Items intersecting the viewport, top to bottom.
+  final List<VisibleItem> items;
+
+  /// Built content (px) above the viewport top.
+  final double extentBefore;
+
+  /// Built content (px) below the viewport bottom.
+  final double extentAfter;
+
+  /// Whether a finger is dragging the list.
+  final bool userDragging;
+}
+
+/// Where the view must put the window before it paints (§11.4).
+///
+/// ```dart
+/// switch (window.placement) {
+///   case PlaceAnchor(:final key, :final offset): ...
+///   case PlaceBottom(): ...
+///   case PlaceUnread(:final key, :final topInset): ...
+///   case null: // keep the current position
+/// }
+/// ```
+@immutable
+sealed class WindowPlacement {
+  const WindowPlacement();
+}
+
+/// Put the top of [key] at [offset] px below the viewport top.
+final class PlaceAnchor extends WindowPlacement {
+  /// Creates the placement.
+  const PlaceAnchor(this.key, this.offset);
+
+  /// The anchor item.
+  final MessageKey key;
+
+  /// Pixels from the viewport top to the anchor's top.
+  final double offset;
+}
+
+/// Show the end of the window, pinned to the bottom.
+final class PlaceBottom extends WindowPlacement {
+  /// Creates the placement.
+  const PlaceBottom();
+}
+
+/// Put the unread divider (shown before [key]) at [topInset] px below the
+/// viewport top; if the content below it is shorter than the viewport,
+/// align to the bottom instead.
+final class PlaceUnread extends WindowPlacement {
+  /// Creates the placement.
+  const PlaceUnread(this.key, this.topInset);
+
+  /// The first unread message.
+  final MessageKey key;
+
+  /// Pixels from the viewport top to the divider.
+  final double topInset;
+}
+
+/// The messages the view must build, and where to put them.
+///
+/// ```dart
+/// controller.window.addListener(() {
+///   final w = controller.window.value;
+///   print('${w.keys.length} items, placement ${w.placement}');
+/// });
+/// ```
+@immutable
+final class MessageWindow {
+  /// Creates a window.
+  const MessageWindow({
+    required this.list,
+    required this.keys,
+    this.unreadDividerBefore,
+    this.placement,
+    this.placementSerial = 0,
+    this.generation = 0,
+  });
+
+  /// The list the keys belong to.
+  final ListId list;
+
+  /// Keys to build, oldest first. At most `windowSize`.
+  final List<MessageKey> keys;
+
+  /// The key the unread divider is shown before, if any.
+  final MessageKey? unreadDividerBefore;
+
+  /// Where to put the window. Applied once per [placementSerial]; otherwise
+  /// the view keeps its position.
+  final WindowPlacement? placement;
+
+  /// Changes whenever [placement] must be applied again.
+  final int placementSerial;
+
+  /// Open/jump counter of the controller.
+  final int generation;
+}

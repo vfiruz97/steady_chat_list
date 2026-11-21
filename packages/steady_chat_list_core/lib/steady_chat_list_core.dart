@@ -8,11 +8,13 @@
 /// ```
 library;
 
+export 'src/hub.dart';
 export 'src/list_event.dart';
 export 'src/list_store.dart';
 export 'src/message_key.dart';
 export 'src/message_store.dart';
 export 'src/models.dart';
 export 'src/paging.dart';
+export 'src/policies.dart';
 export 'src/source.dart';
 export 'src/store_delta.dart';

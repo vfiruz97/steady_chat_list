@@ -783,10 +783,21 @@ final class ListStore<M> {
     b = a;
     while (b < _segments.length && _segments[b].first <= hi) {
       final s = _segments[b];
-      if (s.first < lo) lo = s.first;
-      if (s.last > hi) hi = s.last;
-      oldest = oldest || s.reachedOldest;
-      newest = newest || s.reachedNewest;
+      // The flag of an end belongs to whoever reaches farther: a page that
+      // proves keys beyond a segment's end without claiming the end shows
+      // that the segment's flag was stale.
+      if (s.first < lo) {
+        lo = s.first;
+        oldest = s.reachedOldest;
+      } else if (s.first.isSamePosition(lo)) {
+        oldest = oldest || s.reachedOldest;
+      }
+      if (s.last > hi) {
+        hi = s.last;
+        newest = s.reachedNewest;
+      } else if (s.last.isSamePosition(hi)) {
+        newest = newest || s.reachedNewest;
+      }
       b++;
     }
     // Bounds are always keys that exist in memory.

@@ -9,3 +9,9 @@ pubspec.lock
 *.iml
 .DS_Store
 coverage/
+
+# Local tooling and internal planning documents
+.vscode/
+.puro.json
+PROMPT.md
+SPEC.md

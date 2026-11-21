@@ -1,6 +1,6 @@
 # Decisions
 
-Every interpretation of `SPEC.md`, with the reason. Section numbers refer to the spec.
+Every interpretation of the project specification, with the reason. Section numbers (§) refer to that specification, which is an internal document and not part of this repository.
 
 ## Workspace
 
@@ -76,8 +76,63 @@ Orphans first, then islands without protected keys (oldest keys first), then the
 **D23. Invariant checks.**
 Cheap checks (segments, index sizes) run in an `assert` after every operation. The full O(n) check is `debugCheckInvariants()`, used by the tests.
 
+## Hub, controller and policies (§8.4, §9, §10, §13)
+
+**D24. The hub and the policies are pure Dart and live in the core; the controller lives in the Flutter package.**
+§4 puts "policies" in the core and "controller" in the Flutter package. The hub only needs streams and timers, so it is in the core too and can be tested without Flutter. The controller needs `ChangeNotifier` and `ValueListenable`.
+
+**D25. `memoryLimitPerList`, `openListsInMemory` and `mergeMessage` belong to the hub, not to `MessageListConfig` / `MessageListCallbacks`.**
+The store is shared by every controller of a hub, so two controllers can't have different limits or merge functions for the same list.
+
+**D26. The controller talks to the view through two things: `controller.window` and `controller.reportViewport`.**
+`MessageWindow` holds the keys to build, the unread divider key and a `WindowPlacement` (anchor at an offset / bottom / unread divider) that the view applies before it paints. The view answers with `ViewportMetrics`. This is what makes the controller testable headless: the tests use a `FakeViewport` (in `test/support/`) that lays items out as a column of boxes. The real view (milestone 3) implements the same contract.
+
+**D27. Store changes are applied to the store at once and to the window once per frame.**
+The hub applies events immediately (microseconds); each controller collects the deltas and updates its window in one frame callback (`FrameScheduler`, default `SchedulerBinding.scheduleFrameCallback`). So "all events in one frame produce one rebuild" (§10.3) holds, and the store is never behind.
+
+**D28. Callbacks and stream events are delivered in a microtask.**
+§13.1 forbids calling the app during build or layout. Every event is queued and delivered after the current task; one code path feeds both `controller.events` and the callbacks, so they always carry the same information. Exception: `saveSnapshot` is called at once (it must run before dispose or page hide completes).
+
+**D29. `MessageInserted`, `MessageUpdated` and `MessageRemoved` carry a list of keys.**
+One event per frame and cause instead of 40 events for a page. The spec's singular names are kept because `MessagesUpdated` is already a backend event in the core.
+
+**D30. A persisted position whose anchor is not in memory is fetched (`around` the anchor) and restored.**
+§10.1 rule 2 says "and the anchor is cached → restore". Without a cache that would mean a browser reload never restores. The controller loads around the anchor instead, so a reload restores the position even with the in-memory cache; with the Drift cache it is instant. The island rule is unchanged: a position that was not connected to the newest message is discarded unless `restoreIslandsAfterRestart` is set (test 3).
+
+**D31. `ViewportStore.load` and `loadSnapshot` return `FutureOr`.**
+A synchronous answer lets the list restore in the first frame (§11.4). A future gets the 50 ms budget (`snapshotLoadBudget`).
+
+**D32. Restore is always by anchor.**
+`offsetFromBottom` is saved (spec) but not used to restore: the anchor is exact at any width, and when the anchor was deleted the nearest key is used (§10.7).
+
+**D33. A cold open with unread messages takes two fetches.**
+The read state is unknown until the first page brings it (or the app calls `setReadState`). The controller loads `latest`, sees `unreadCount > 0`, and loads `around(lastReadInbox)` unless the first unread message is already in that page. The divider is only placed when the data around the read marker is loaded, so it can't land on a later message (see L2).
+
+**D34. Every open ends with a background refresh.**
+After a restore or an unread open: `newer` from the end of the segment. After a bottom open from memory: `latest`. This catches up with what was missed while the list had no subscription and never moves the viewport. To make this safe, a page that proves keys beyond a segment's end without claiming the end clears that segment's `reachedNewest` / `reachedOldest` (the flag was stale).
+
+**D35. Scrolled up, new messages are added to the window only while it has room.**
+§10.3 says "append to the window without moving". The window can't exceed `windowSize` and its top is on screen, so when it is full the new messages stay in the store and are paged in when the user scrolls down.
+
+**D36. Paging trigger for a full window.**
+When loading a page on one side unmounts a page on the other, the trigger distance is reduced to less than `(scrollable − page extent) / 2`. Otherwise small items make the two edges trigger each other forever (80 items of 20 px with a 1,500 px preload). Covered by a test over item heights from 20 to 200 px.
+
+**D37. Unread counter.**
+`unreadCount` = server count − server-counted messages read here + messages that arrived since the last server state and aren't read. A new server read state replaces the "arrived" part. Without a read marker (`lastReadInbox == null`) the unread messages are taken to be the newest incoming ones.
+
+**D38. Read receipts are throttled, not restarted.**
+The first read starts a `readDebounce` timer; later reads don't restart it, so continuous reading still sends a receipt every 300 ms. A failed receipt is retried with `RetryPolicy`; `onReadUpTo` is called once per key.
+
+**D39. `open()` superseded by a newer `open()` / `switchTo()` completes with `OpenResolution.bottom`** and changes nothing. Only the last one emits `ListOpened`.
+
+**D40. Not in this milestone:** `jumpTo…`, `reselect`, `search` (milestone 4); `insertLocal`, remove animations (5); selection, geometry, visibility, prefetch, the remaining callbacks (6); `invalidate`, `reset`, the cache (7); `debugDescribe` (8). `MessageListConfig` and `MessageListCallbacks` only have the fields that already work.
+
 ## Known limits
 
 **L1. Stale pages are the controller's job.** The store accepts whatever it is given. Two cases can make a late page wrong and are excluded in the property test: a late "this is the newest" answer, and a page fetched before an orphan was evicted. Generations and single flight (§15, milestone 2) drop such pages before they reach the store.
 
 **L2. `firstUnread` looks at loaded messages only.** If `lastReadInbox` is not loaded it returns the first loaded incoming message of a segment. The open rule (§10.1, milestone 2) fetches around `lastReadInbox` first.
+
+**L3. A page whose items were all deleted locally makes no progress.** The edge then shows an error instead of fetching the same page forever; retry works once the tombstones expire (5 min).
+
+**L4. A window smaller than the viewport plus one page can't page smoothly.** With tiny items or a huge viewport, raise `windowSize` (see D36).
