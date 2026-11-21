@@ -1,3 +1,9 @@
+## 0.1.2
+
+- A runnable `example/example.dart`.
+- **Fixed:** the README sample used `const PageRequest`, which does not compile.
+- Doc comments on the `CancellationToken` and `InMemoryViewportStore` constructors.
+
 ## 0.1.1
 
 Documentation only: a screen recording and a screenshot, updated links.

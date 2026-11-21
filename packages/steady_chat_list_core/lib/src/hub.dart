@@ -59,6 +59,9 @@ abstract interface class ViewportStore {
 ///     viewportStore: InMemoryViewportStore());
 /// ```
 final class InMemoryViewportStore implements ViewportStore {
+  /// Creates an empty store.
+  InMemoryViewportStore();
+
   final Map<ListId, ViewportSnapshot> _snapshots = {};
 
   @override

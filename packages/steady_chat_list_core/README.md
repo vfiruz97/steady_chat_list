@@ -15,8 +15,8 @@ What is inside:
 final hub = MessageListHub<Message>(source: backend, adapter: adapter);
 final store = hub.attach(const ListId('chat-1'));
 await hub.fetch(
-  const PageRequest(
-    list: ListId('chat-1'),
+  PageRequest(
+    list: const ListId('chat-1'),
     direction: PageDirection.latest,
     limit: 40,
   ),

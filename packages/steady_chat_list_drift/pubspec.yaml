@@ -2,7 +2,7 @@ name: steady_chat_list_drift
 description: >-
   Drift (SQLite) message cache for steady_chat_list: chats open at once and
   work offline. Works on mobile, desktop and web.
-version: 0.1.1
+version: 0.1.2
 repository: https://github.com/vfiruz97/steady_chat_list/tree/main/packages/steady_chat_list_drift
 issue_tracker: https://github.com/vfiruz97/steady_chat_list/issues
 topics:

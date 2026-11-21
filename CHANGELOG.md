@@ -2,6 +2,11 @@
 
 All packages in this repository share one version.
 
+## 0.1.2
+
+- `steady_chat_list_core`: a runnable `example/example.dart`; the README sample no longer uses `const PageRequest`, which does not compile.
+- Doc comments on the `CancellationToken` and `InMemoryViewportStore` constructors.
+
 ## 0.1.1
 
 - A screen recording and a screenshot in the README and on the pub.dev page.

@@ -1,3 +1,7 @@
+## 0.1.2
+
+Documentation only, with `steady_chat_list_core` 0.1.2.
+
 ## 0.1.1
 
 Documentation only.

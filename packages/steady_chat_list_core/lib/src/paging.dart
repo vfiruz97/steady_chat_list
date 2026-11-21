@@ -31,6 +31,9 @@ enum PageDirection {
 /// request.cancel.whenCancelled.then((_) => dioToken.cancel());
 /// ```
 final class CancellationToken {
+  /// Creates a token that is not cancelled yet.
+  CancellationToken();
+
   final Completer<void> _completer = Completer<void>();
 
   /// Whether [cancel] was called.

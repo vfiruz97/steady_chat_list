@@ -2,7 +2,7 @@ name: steady_chat_list
 description: >-
   A steady chat message list: opens at the right place, pages
   unlimited history with a fixed number of widgets, and never jumps.
-version: 0.1.1
+version: 0.1.2
 repository: https://github.com/vfiruz97/steady_chat_list/tree/main/packages/steady_chat_list
 issue_tracker: https://github.com/vfiruz97/steady_chat_list/issues
 screenshots:
