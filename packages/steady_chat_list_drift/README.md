@@ -31,3 +31,15 @@ await hub.hydrate(ListId(chat.id));
 A cache can always be refilled from your backend, so a database with an unknown layout is rebuilt instead of migrated.
 
 Requires Dart 3.5 or newer.
+
+## Install
+
+The package is not on pub.dev yet. Add it from the repository:
+
+```yaml
+dependencies:
+  steady_chat_list_drift:
+    git:
+      url: https://github.com/vfiruz97/steady_chat_list.git
+      path: packages/steady_chat_list_drift
+```

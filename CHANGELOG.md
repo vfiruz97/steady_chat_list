@@ -4,7 +4,7 @@ All packages in this repository share one version.
 
 ## 0.1.0 — first release on pub.dev
 
-The same code as `0.1.0-dev.9`, published as `steady_chat_list`, `steady_chat_list_core` and `steady_chat_list_drift`.
+The same code as `0.1.0-dev.9`, published as `steady_chat_list` and `steady_chat_list_core`. `steady_chat_list_drift` stays in the repository for now.
 
 ## 0.1.0-dev.9 — milestone 8: example app, benchmarks, debug tools
 

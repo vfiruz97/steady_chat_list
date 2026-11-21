@@ -9,7 +9,7 @@ What is inside:
 - `ListStore`: sorted messages with *segments*, the runs of history that pages have proven to be gap-free. The store never guesses that two messages are neighbors.
 - `MessageListHub`: one per app; shares stores between controllers, runs one fetch per direction, trims memory, writes through to a `MessageCache`.
 - Policies (`OpenPolicy`, `WindowPolicy`, `ReadPolicy`, `RetryPolicy`, …) and the jump model.
-- `MessageCache` with `InMemoryMessageCache`; the SQLite cache is [`steady_chat_list_drift`](https://pub.dev/packages/steady_chat_list_drift).
+- `MessageCache` with `InMemoryMessageCache`; the SQLite cache is [`steady_chat_list_drift`](https://github.com/vfiruz97/steady_chat_list/tree/main/packages/steady_chat_list_drift) (not on pub.dev yet).
 
 ```dart
 final hub = MessageListHub<Message>(source: backend, adapter: adapter);

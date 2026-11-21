@@ -207,7 +207,7 @@ Measured by the [benchmarks](benchmarks/RESULTS.md) in profile mode. On a deskto
 | --- | --- |
 | [`steady_chat_list`](packages/steady_chat_list) | The Flutter package: controller, view, simple API, widgets |
 | [`steady_chat_list_core`](packages/steady_chat_list_core) | Pure Dart: keys, segmented store, hub, policies, cache interface. Exported by `steady_chat_list` |
-| [`steady_chat_list_drift`](packages/steady_chat_list_drift) | Optional SQLite cache on [drift](https://pub.dev/packages/drift), also on the web |
+| [`steady_chat_list_drift`](packages/steady_chat_list_drift) | Optional SQLite cache on [drift](https://pub.dev/packages/drift), also on the web. Not on pub.dev yet |
 | [`example`](example) | The demo app |
 | [`benchmarks`](benchmarks) | Performance and stress tests, and their [results](benchmarks/RESULTS.md) |
 

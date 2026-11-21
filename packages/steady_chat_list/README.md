@@ -204,6 +204,6 @@ Measured by the [benchmarks](https://github.com/vfiruz97/steady_chat_list/blob/m
 ## Related packages
 
 - [`steady_chat_list_core`](https://pub.dev/packages/steady_chat_list_core): the pure Dart part (exported by this package).
-- [`steady_chat_list_drift`](https://pub.dev/packages/steady_chat_list_drift): an optional SQLite cache.
+- [`steady_chat_list_drift`](https://github.com/vfiruz97/steady_chat_list/tree/main/packages/steady_chat_list_drift): an optional SQLite cache. Not on pub.dev yet; add it as a git dependency.
 
 Requires Dart 3.5 / Flutter 3.24 or newer. Android, iOS, web, macOS, Windows and Linux.
