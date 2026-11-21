@@ -170,6 +170,10 @@ All optional and themed with `MessageListTheme` (no Material dependency): `Messa
 1. **Give media a size before it loads** (an `AspectRatio` from the dimensions your backend sends). The list keeps the viewport still when a row changes height, but a row that is on screen visibly grows.
 2. **Change a message by sending a new object** (`controller.patch`, an event, or a new list). Only the changed rows rebuild.
 
+### Using an AI coding assistant
+
+[AI_GUIDE.md](https://github.com/vfiruz97/steady_chat_list/blob/main/packages/steady_chat_list/AI_GUIDE.md) is a short rule list for assistants that write code with this package: which mode to pick, what must not be created inside `build()`, layout rules, sending, and a checklist of the usual mistakes. Point your assistant at it (for example from your project's `AGENTS.md` or `CLAUDE.md`).
+
 ### Debugging
 
 `MessageListView(debugOverlay: true)` draws the anchor line and the state of the window in debug builds; `controller.debugDescribe()` returns the same as text for bug reports.

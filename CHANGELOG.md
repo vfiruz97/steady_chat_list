@@ -24,6 +24,10 @@ All packages in this repository share one version.
 - **Fixed:** on the web, a tab that was navigated away in the middle of a write could leave a transaction open and block the cache for every tab. Each write is now a single atomic request; reads hold no transaction.
 - `benchmark/drift_benchmark.dart`.
 
+### Documentation
+
+- `AI_GUIDE.md` in the package: rules for AI coding assistants that use it. `AGENTS.md` in the repository for assistants that change it.
+
 ### Example and benchmarks
 
 - `example/`: a demo app with a left menu of twelve demos on a simulated server with a 10,000,000-message chat. Reloading the browser restores the page and the position.
