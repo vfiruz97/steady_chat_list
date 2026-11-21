@@ -66,6 +66,7 @@ final class PageRequest {
     required this.limit,
     this.anchor,
     this.anchorDate,
+    this.cursor,
     this.generation = 0,
     CancellationToken? cancel,
   }) : cancel = cancel ?? CancellationToken();
@@ -82,6 +83,11 @@ final class PageRequest {
   /// Set for jump-to-date when no key is known: the page should be around
   /// the first message on or after this moment.
   final DateTime? anchorDate;
+
+  /// The opaque token a previous page returned for this edge
+  /// ([PageResult.olderCursor] / [PageResult.newerCursor]), when the list
+  /// still has it. Backends that page by key can ignore it.
+  final String? cursor;
 
   /// Maximum number of messages. For [PageDirection.around]: about half
   /// older and half newer.
@@ -114,6 +120,8 @@ final class PageResult<M> {
     this.reachedOldest = false,
     this.reachedNewest = false,
     this.readState,
+    this.olderCursor,
+    this.newerCursor,
   });
 
   /// The messages, in any order.
@@ -127,4 +135,12 @@ final class PageResult<M> {
 
   /// Optional read state sent along with the page.
   final ReadState? readState;
+
+  /// For backends that page with tokens: the token to load the page before
+  /// the oldest message of this page. It comes back as
+  /// [PageRequest.cursor].
+  final String? olderCursor;
+
+  /// The token to load the page after the newest message of this page.
+  final String? newerCursor;
 }

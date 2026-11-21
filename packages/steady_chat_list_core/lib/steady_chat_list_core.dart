@@ -16,5 +16,6 @@ export 'src/message_store.dart';
 export 'src/models.dart';
 export 'src/paging.dart';
 export 'src/policies.dart';
+export 'src/simple_sources.dart';
 export 'src/source.dart';
 export 'src/store_delta.dart';

@@ -87,7 +87,11 @@ final class _Run {
         final min = server.min;
         final max = server.max;
         if (min == null || max == null || store.liveSegment == null) return;
-        final order = min + r.nextInt(max - min + 1);
+        // Sometimes older than everything: a new start of the history.
+        final order = r.nextInt(8) == 0
+            ? min - 1 - r.nextInt(3)
+            : min + r.nextInt(max - min + 1);
+        if (order <= (store.clearedUpTo?.order ?? 0)) return;
         if (!used.add(order)) return;
         server.byOrder[order] = Msg(order);
         _event(MessagesAdded(chat, [Msg(order)]));
@@ -170,8 +174,12 @@ final class _Run {
   }
 
   void _page((PageRequest, PageResult<Msg>) page, {bool canDelay = true}) {
-    // A late "this is the newest" answer is what generations guard against.
-    if (canDelay && !page.$2.reachedNewest && r.nextInt(3) == 0) {
+    // A late "this is the newest" or "this is the oldest" answer is what
+    // generations guard against.
+    if (canDelay &&
+        !page.$2.reachedNewest &&
+        !page.$2.reachedOldest &&
+        r.nextInt(3) == 0) {
       pending.add(page);
     } else {
       _applyPage(page);

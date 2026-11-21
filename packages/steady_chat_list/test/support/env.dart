@@ -15,10 +15,12 @@ class Env {
     int outgoingEvery = 0,
     this.viewportStore,
     Msg Function(Msg message)? decorate,
+    bool cursors = false,
   }) : server = FakeChatServer(
           count: count,
           outgoingEvery: outgoingEvery,
           decorate: decorate,
+          cursors: cursors,
         ) {
     hub = newHub();
   }

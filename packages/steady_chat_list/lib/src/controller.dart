@@ -1061,6 +1061,10 @@ class MessageListController<M> extends ChangeNotifier {
           list: _list,
           direction: older ? PageDirection.older : PageDirection.newer,
           anchor: anchor,
+          cursor: store.cursorAt(
+            anchor,
+            older ? ScanDirection.older : ScanDirection.newer,
+          ),
           limit: _windowPolicy.pageSize,
           generation: generation,
           cancel: _token,

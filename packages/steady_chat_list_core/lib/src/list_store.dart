@@ -86,6 +86,8 @@ final class ListStore<M> {
   final List<Segment> _segments = <Segment>[];
   final Map<String, DateTime> _tombstones = <String, DateTime>{};
   final Map<String, Object> _sendErrors = <String, Object>{};
+  final Map<String, String> _olderCursors = <String, String>{};
+  final Map<String, String> _newerCursors = <String, String>{};
   final List<StoreListener> _listeners = <StoreListener>[];
   ReadState _readState = ReadState.empty;
   List<MessageKey> _pinned = const <MessageKey>[];
@@ -151,6 +153,17 @@ final class ListStore<M> {
   /// The message with the id of [key], if in memory.
   M? operator [](MessageKey key) => messageOf(key.id);
 
+  /// The page token to continue past [edge] in [direction], if the page
+  /// that ended at [edge] returned one.
+  ///
+  /// ```dart
+  /// final cursor = store.cursorAt(segment.first, ScanDirection.older);
+  /// ```
+  String? cursorAt(MessageKey edge, ScanDirection direction) =>
+      direction == ScanDirection.older
+          ? _olderCursors[edge.id]
+          : _newerCursors[edge.id];
+
   /// The error of a local message whose send failed, else null.
   Object? sendErrorOf(String id) => _sendErrors[id];
 
@@ -215,6 +228,20 @@ final class ListStore<M> {
           !_knownEmpty) {
         _knownEmpty = true;
         d.segments = true;
+      }
+      // Page tokens belong to the edge keys of the page they came with.
+      if (anchor != null && direction == PageDirection.older) {
+        _olderCursors.remove(anchor.id);
+      } else if (anchor != null && direction == PageDirection.newer) {
+        _newerCursors.remove(anchor.id);
+      }
+      final olderCursor = result.olderCursor;
+      if (olderCursor != null && lo != null) {
+        _olderCursors[lo!.id] = olderCursor;
+      }
+      final newerCursor = result.newerCursor;
+      if (newerCursor != null && hi != null) {
+        _newerCursors[hi!.id] = newerCursor;
       }
       final read = result.readState;
       if (read != null) _setReadState(read, d);
@@ -537,6 +564,8 @@ final class ListStore<M> {
   void _removeRaw(MessageKey key) {
     final value = _byKey.remove(key) as M;
     _keyById.remove(key.id);
+    _olderCursors.remove(key.id);
+    _newerCursors.remove(key.id);
     _byDate.remove(_Dated(adapter.dateOf(value).microsecondsSinceEpoch, key));
   }
 
@@ -612,7 +641,16 @@ final class ListStore<M> {
   /// Places a key that arrived as a live event (already in `_byKey`).
   void _placeAdded(MessageKey key, _DeltaBuilder d) {
     if (_segmentIndexOf(key) >= 0) return; // late message inside a segment
-    if (_segments.isNotEmpty && key < _segments.last.last) return; // orphan
+    if (_segments.isNotEmpty && key < _segments.last.last) {
+      // Older than a segment that starts at the beginning of history: it
+      // is the new beginning. Anywhere else it is an orphan.
+      final oldest = _segments.first;
+      if (oldest.reachedOldest && key < oldest.first) {
+        _segments[0] = oldest.copyWith(first: key);
+        d.segments = true;
+      }
+      return;
+    }
     final live = liveSegment;
     if (live != null) {
       _segments[_segments.length - 1] = live.copyWith(last: key);

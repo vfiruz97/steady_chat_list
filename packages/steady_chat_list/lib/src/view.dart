@@ -6,6 +6,7 @@ import 'package:steady_chat_list_core/steady_chat_list_core.dart';
 
 import 'anchored_scroll_position.dart';
 import 'controller.dart';
+import 'defaults.dart';
 import 'events.dart';
 import 'item_info.dart';
 import 'viewport.dart';
@@ -63,7 +64,8 @@ class MessageListView<M> extends StatefulWidget {
   /// Builds the "Unread messages" divider.
   final WidgetBuilder? unreadDividerBuilder;
 
-  /// Builds the row at each end of the window (spinner, error with retry).
+  /// Builds the row at each end of the window. Default: a spinner while a
+  /// page loads, a tap-to-retry line when it failed.
   final EdgeBuilder? edgeBuilder;
 
   /// Shown above the oldest message of the list (chat intro).
@@ -73,13 +75,14 @@ class MessageListView<M> extends StatefulWidget {
   /// change; a list at the bottom stays pinned.
   final WidgetBuilder? footerBuilder;
 
-  /// Shown when the list has no messages.
+  /// Shown when the list has no messages. Default: [DefaultEmptyState].
   final WidgetBuilder? emptyBuilder;
 
-  /// Shown while the first page loads.
+  /// Shown while the first page loads. Default: [DefaultLoadingState].
   final WidgetBuilder? loadingBuilder;
 
-  /// Shown when the first page failed. Call `controller.open()` to retry.
+  /// Shown when the first page failed. Default: [DefaultErrorState], which
+  /// calls `controller.open()` on tap.
   final WidgetBuilder? errorBuilder;
 
   /// Called when a day header is tapped.
@@ -351,12 +354,15 @@ class _MessageListViewState<M> extends State<MessageListView<M>>
   Widget build(BuildContext context) {
     final controller = _controller;
     if (_upper.isEmpty && _lower.isEmpty) {
-      final builder = switch (controller.phase.value) {
-        ListPhase.loading || ListPhase.ready => widget.loadingBuilder,
-        ListPhase.empty => widget.emptyBuilder,
-        ListPhase.error => widget.errorBuilder,
+      return switch (controller.phase.value) {
+        ListPhase.loading ||
+        ListPhase.ready =>
+          widget.loadingBuilder?.call(context) ?? const DefaultLoadingState(),
+        ListPhase.empty =>
+          widget.emptyBuilder?.call(context) ?? const DefaultEmptyState(),
+        ListPhase.error => widget.errorBuilder?.call(context) ??
+            DefaultErrorState(onRetry: controller.open),
       };
-      return builder?.call(context) ?? const SizedBox.expand();
     }
     final centerKey = ValueKey<int>(_epoch);
     final padding = widget.padding;
@@ -866,8 +872,20 @@ class _EdgeRow extends StatelessWidget {
         builder: (context, value, _) {
           final end = endBuilder;
           if (value is EdgeEnd && end != null) return end(context);
-          return builder?.call(context, edge, value, retry) ??
-              const SizedBox.shrink();
+          final custom = builder;
+          if (custom != null) return custom(context, edge, value, retry);
+          return switch (value) {
+            EdgeLoading() => const Padding(
+                padding: EdgeInsets.symmetric(vertical: 14),
+                child: Center(child: SteadySpinner()),
+              ),
+            EdgeError() => DefaultErrorState(
+                onRetry: retry,
+                text: "Couldn't load more. Tap to retry.",
+                expand: false,
+              ),
+            EdgeIdle() || EdgeEnd() => const SizedBox.shrink(),
+          };
         },
       );
 }

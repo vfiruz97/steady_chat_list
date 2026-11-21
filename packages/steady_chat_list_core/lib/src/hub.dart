@@ -260,6 +260,7 @@ final class MessageListHub<M> {
       direction: request.direction,
       anchor: request.anchor,
       anchorDate: request.anchorDate,
+      cursor: request.cursor,
       limit: request.limit,
       generation: request.generation,
       cancel: flight.token,

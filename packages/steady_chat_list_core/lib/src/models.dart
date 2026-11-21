@@ -53,6 +53,26 @@ abstract class MessageAdapter<M> {
   /// Const constructor for subclasses.
   const MessageAdapter();
 
+  /// An adapter made of functions, for when a subclass is too much.
+  ///
+  /// ```dart
+  /// final adapter = MessageAdapter<ChatMessage>.from(
+  ///   key: (m) => MessageKey(order: m.sentAt.microsecondsSinceEpoch, id: m.id),
+  ///   date: (m) => m.sentAt,
+  ///   isOutgoing: (m) => m.authorId == myId,
+  /// );
+  /// ```
+  const factory MessageAdapter.from({
+    required MessageKey Function(M message) key,
+    required DateTime Function(M message) date,
+    String? Function(M message)? groupId,
+    String? Function(M message)? senderId,
+    bool Function(M message)? isOutgoing,
+    bool Function(M message)? isService,
+    bool Function(M message)? mentionsMe,
+    bool Function(M a, M b)? equals,
+  }) = _FunctionAdapter<M>;
+
   /// The sortable identity of [m].
   MessageKey keyOf(M m);
 
@@ -80,6 +100,59 @@ abstract class MessageAdapter<M> {
   /// Whether [a] and [b] render the same. An item rebuilds only when this
   /// returns false.
   bool equals(M a, M b) => a == b;
+}
+
+final class _FunctionAdapter<M> extends MessageAdapter<M> {
+  const _FunctionAdapter({
+    required MessageKey Function(M message) key,
+    required DateTime Function(M message) date,
+    String? Function(M message)? groupId,
+    String? Function(M message)? senderId,
+    bool Function(M message)? isOutgoing,
+    bool Function(M message)? isService,
+    bool Function(M message)? mentionsMe,
+    bool Function(M a, M b)? equals,
+  })  : _key = key,
+        _date = date,
+        _groupId = groupId,
+        _senderId = senderId,
+        _isOutgoing = isOutgoing,
+        _isService = isService,
+        _mentionsMe = mentionsMe,
+        _equals = equals;
+
+  final MessageKey Function(M message) _key;
+  final DateTime Function(M message) _date;
+  final String? Function(M message)? _groupId;
+  final String? Function(M message)? _senderId;
+  final bool Function(M message)? _isOutgoing;
+  final bool Function(M message)? _isService;
+  final bool Function(M message)? _mentionsMe;
+  final bool Function(M a, M b)? _equals;
+
+  @override
+  MessageKey keyOf(M m) => _key(m);
+
+  @override
+  DateTime dateOf(M m) => _date(m);
+
+  @override
+  String? groupIdOf(M m) => _groupId?.call(m);
+
+  @override
+  String? senderIdOf(M m) => _senderId?.call(m);
+
+  @override
+  bool isOutgoing(M m) => _isOutgoing?.call(m) ?? false;
+
+  @override
+  bool isService(M m) => _isService?.call(m) ?? false;
+
+  @override
+  bool mentionsMe(M m) => _mentionsMe?.call(m) ?? false;
+
+  @override
+  bool equals(M a, M b) => _equals?.call(a, b) ?? a == b;
 }
 
 /// Read markers and unread counters of a list.

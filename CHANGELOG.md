@@ -2,6 +2,28 @@
 
 All packages in this repository share one version.
 
+## 0.1.0-dev.4 — simple API
+
+### steady_chat_list
+
+- `SteadyChatList`: the whole list in one widget.
+  - `.list`: over a `List` the app has; opens in the first frame; rebuild with the changed list.
+  - `.stream`: over a stream of complete lists (Drift, Firestore, Supabase).
+  - `.source`: over a paged backend.
+- Default states: `DefaultLoadingState`, `DefaultEmptyState`, `DefaultErrorState` (tap to retry), spinner and retry rows at the window edges, `SteadySpinner`. No Material or Cupertino needed.
+- Page tokens are passed back to the backend when paging.
+
+### steady_chat_list_core
+
+- `ListMessageSource` and `StreamMessageSource`.
+- `MessageAdapter.from` (an adapter from functions).
+- `PageResult.olderCursor` / `newerCursor`, `PageRequest.cursor`, `ListStore.cursorAt`.
+- A message older than the loaded beginning of history becomes the new beginning.
+
+### Tests
+
+- 89 tests in `steady_chat_list` (99.7% line coverage), 99 in `steady_chat_list_core` (100%), including a streaming (AI assistant) reply that grows at the bottom.
+
 ## 0.1.0-dev.3 — milestone 3: the view
 
 ### steady_chat_list

@@ -172,10 +172,35 @@ Its replacement does not exist in Flutter 3.24, the minimum version.
 **D53. App lifecycle.**
 `paused`, `hidden` and `detached` save the position with `SaveReason.appPaused`; on the web, hiding or closing the tab reports `hidden`, so no `dart:html` listener is needed. `SaveReason.pageHide` is reserved.
 
-**D54. Not in the view yet:** jump animations and highlight (milestone 4), remove/appear animations (5), default themed widgets, floating day chip, geometry API, keyboard shortcuts, semantics order (6), debug overlay (8). Without builders the edges, loading, empty and error states render nothing.
+**D54. Not in the view yet:** jump animations and highlight (milestone 4), remove/appear animations (5), theming, floating day chip, geometry API, keyboard shortcuts, semantics order (6), debug overlay (8).
 
 **D55. The stress test compares frames where holding the anchor is possible.**
 A frame is skipped when the list is pinned, still settling, or within 700 px of an end of the content (deleting can then leave less content than the distance to the end, and the physics must move the list). At least 80% of the 600 frames per run are compared.
+
+## Simple API (added on the owner's request, not in the specification)
+
+**D56. The package must be easy for small apps, not only for Telegram-size ones.**
+The owner's goal is a list that fits any app with a conversation. The specification only describes the full hub / controller / source setup, so a layer was added on top without changing the engine.
+
+**D57. `SteadyChatList`: one widget with three constructors.**
+`.list` (the app has a `List`), `.stream` (a stream of complete lists) and `.source` (a paged backend). It owns the hub, the controller and, in the first two modes, the source. Named constructors make it impossible to pass two data sources. `MessageListView` with an explicit hub and controller stays the API for split views, chat switching and shared caches.
+
+**D58. List mode opens in the first frame.**
+The newest `windowSize` messages are put into the store before `open()`, so there is no loading frame. A rebuilt widget diffs the list only when its items are not the same objects as before (this also catches a list changed in place).
+
+**D59. `ListMessageSource` and `StreamMessageSource` live in the core.**
+They are pure Dart. Both keep the whole conversation in memory; for huge histories the paged `MessageSource` is the right tool. A stream source listens while a list is attached and catches up by difference when it is attached again.
+
+**D60. `MessageAdapter.from` builds an adapter from functions.** A subclass is still possible and slightly faster to call.
+
+**D61. Page tokens.**
+`PageResult.olderCursor` / `newerCursor` are stored at the edge key they belong to and come back as `PageRequest.cursor` when the list pages past that edge. Backends that page by key ignore them. If the edge key is deleted the token is dropped and the request has only the anchor.
+
+**D62. An added message older than a segment that starts at the beginning of history becomes the new beginning.**
+Before, it was stored as an orphan and never shown. This matters for list and stream mode, where older messages can appear after the whole history was loaded.
+
+**D63. Default states were pulled forward from milestone 6.**
+`DefaultLoadingState`, `DefaultEmptyState`, `DefaultErrorState` and `SteadySpinner` use only `package:flutter/widgets.dart`, so they work in Material, Cupertino and custom apps. The texts are English; apps localize by passing builders.
 
 ## Known limits
 

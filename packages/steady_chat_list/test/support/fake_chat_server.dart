@@ -70,6 +70,7 @@ class FakeChatServer implements MessageSource<Msg> {
     this.latency = const Duration(milliseconds: 150),
     this.outgoingEvery = 0,
     this.decorate,
+    this.cursors = false,
   });
 
   final int count;
@@ -81,6 +82,9 @@ class FakeChatServer implements MessageSource<Msg> {
 
   /// Rewrites generated messages (albums, senders).
   final Msg Function(Msg message)? decorate;
+
+  /// Whether pages carry page tokens, like a token-paged backend.
+  final bool cursors;
 
   /// Sent along with every page when set.
   ReadState? readState;
@@ -164,6 +168,9 @@ class FakeChatServer implements MessageSource<Msg> {
           reachedOldest: page.end,
           reachedNewest: true,
           readState: readState,
+          olderCursor: cursors && page.items.isNotEmpty
+              ? 'before-${page.items.last.order}'
+              : null,
         );
       case PageDirection.older:
         final page = _walk(anchor!, request.limit, _previous);
@@ -171,6 +178,9 @@ class FakeChatServer implements MessageSource<Msg> {
           items: page.items,
           reachedOldest: page.end,
           readState: readState,
+          olderCursor: cursors && page.items.isNotEmpty
+              ? 'before-${page.items.last.order}'
+              : null,
         );
       case PageDirection.newer:
         final page = _walk(anchor!, request.limit, _next);
