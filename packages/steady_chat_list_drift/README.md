@@ -25,7 +25,7 @@ await hub.hydrate(ListId(chat.id));
 - **No code generation.** The schema is plain SQL inside the package; it works with every drift 2.x release.
 - **You choose the executor**: `drift_flutter` in Flutter apps (follow its [web setup](https://drift.simonbinder.eu/platforms/web/) to add `sqlite3.wasm` and `drift_worker.js`), `NativeDatabase` in Dart programs and tests. The database must be used only for this cache.
 - **Bounded size.** By default the newest 500 messages of each chat and the messages around the saved position are kept; chats not opened for 30 days are dropped (`EvictionPolicy`).
-- **Several browser tabs** sharing the database see each other's changes.
+- **Several browser tabs** sharing the database see each other's changes. Every write is a single atomic request, so a tab that is closed or frozen in the middle cannot block the others.
 - Messages are stored with a `MessageCodec`; `JsonMessageCodec` takes your `fromJson` / `toJson`.
 
 A cache can always be refilled from your backend, so a database with an unknown layout is rebuilt instead of migrated.

@@ -48,61 +48,65 @@ final class DriftMessageCache<M> implements MessageCache<M> {
 
   // ----------------------------------------------------------------- read
 
+  // No transaction around the reads, and every write is one batch (one
+  // request to the database): a browser tab that is frozen or closed in
+  // the middle can then never leave a transaction open. With drift on the
+  // web all tabs share one connection, and an open transaction would make
+  // every other tab wait forever.
+
   @override
   Future<CachedList<M>?> load(ListId list, {int limit = 600}) async {
     final key = list.storageKey;
-    return database.transaction(() async {
-      final meta = await database.customSelect(
-        'SELECT 1 FROM lists_meta WHERE list_key = ?',
-        variables: [Variable<String>(key)],
-      ).get();
-      if (meta.isEmpty) return null;
-      await database.customStatement(
-        'UPDATE lists_meta SET last_opened_at = ? WHERE list_key = ?',
-        [_clock().millisecondsSinceEpoch, key],
-      );
-      final snapshot = await _snapshot(key);
-      final rows = await database.customSelect(
+    final meta = await database.customSelect(
+      'SELECT 1 FROM lists_meta WHERE list_key = ?',
+      variables: [Variable<String>(key)],
+    ).get();
+    if (meta.isEmpty) return null;
+    await database.customStatement(
+      'UPDATE lists_meta SET last_opened_at = ? WHERE list_key = ?',
+      [_clock().millisecondsSinceEpoch, key],
+    );
+    final snapshot = await _snapshot(key);
+    final rows = await database.customSelect(
+      'SELECT id, payload FROM messages WHERE list_key = ? '
+      'ORDER BY ord DESC, local_seq DESC, id DESC LIMIT ?',
+      variables: [Variable<String>(key), Variable<int>(limit)],
+    ).get();
+    final byId = <String, M>{
+      for (final row in rows)
+        row.read<String>('id'): codec.decode(row.read<Uint8List>('payload')),
+    };
+    if (snapshot != null) {
+      // The messages around the saved position, wherever they are.
+      final range = snapshot.range;
+      final around = await database.customSelect(
         'SELECT id, payload FROM messages WHERE list_key = ? '
-        'ORDER BY ord DESC, local_seq DESC, id DESC LIMIT ?',
-        variables: [Variable<String>(key), Variable<int>(limit)],
+        'AND ord >= ? AND ord <= ?',
+        variables: [
+          Variable<String>(key),
+          Variable<int>(range.first.order),
+          Variable<int>(range.last.order),
+        ],
       ).get();
-      final byId = <String, M>{
-        for (final row in rows)
-          row.read<String>('id'): codec.decode(row.read<Uint8List>('payload')),
-      };
-      if (snapshot != null) {
-        // The messages around the saved position, wherever they are.
-        final range = snapshot.range;
-        final around = await database.customSelect(
-          'SELECT id, payload FROM messages WHERE list_key = ? '
-          'AND ord >= ? AND ord <= ?',
-          variables: [
-            Variable<String>(key),
-            Variable<int>(range.first.order),
-            Variable<int>(range.last.order),
-          ],
-        ).get();
-        for (final row in around) {
-          byId.putIfAbsent(
-            row.read<String>('id'),
-            () => codec.decode(row.read<Uint8List>('payload')),
-          );
-        }
+      for (final row in around) {
+        byId.putIfAbsent(
+          row.read<String>('id'),
+          () => codec.decode(row.read<Uint8List>('payload')),
+        );
       }
-      final read = await database.customSelect(
-        'SELECT json FROM read_state WHERE list_key = ?',
-        variables: [Variable<String>(key)],
-      ).getSingleOrNull();
-      return CachedList<M>(
-        messages: byId.values.toList(growable: false),
-        segments: await _segments(key),
-        readState: read == null
-            ? null
-            : ReadState.fromJson(_decode(read.read<String>('json'))),
-        snapshot: snapshot,
-      );
-    });
+    }
+    final read = await database.customSelect(
+      'SELECT json FROM read_state WHERE list_key = ?',
+      variables: [Variable<String>(key)],
+    ).getSingleOrNull();
+    return CachedList<M>(
+      messages: byId.values.toList(growable: false),
+      segments: await _segments(key),
+      readState: read == null
+          ? null
+          : ReadState.fromJson(_decode(read.read<String>('json'))),
+      snapshot: snapshot,
+    );
   }
 
   Future<ViewportSnapshot?> _snapshot(String key) async {
@@ -153,116 +157,127 @@ final class DriftMessageCache<M> implements MessageCache<M> {
     PageRequest request,
     PageResult<M> result, {
     required List<Segment> segments,
-  }) =>
-      _write(() async {
-        final key = request.list.storageKey;
-        await _touch(key);
-        for (final message in result.items) {
-          await _put(key, message);
-        }
-        await _replaceSegments(key, segments);
-        final read = result.readState;
-        if (read != null) await _saveReadState(key, read);
-      });
+  }) {
+    final key = request.list.storageKey;
+    final out = <_Statement>[];
+    _touch(out, key);
+    for (final message in result.items) {
+      _put(out, key, message);
+    }
+    _replaceSegments(out, key, segments);
+    final read = result.readState;
+    if (read != null) _saveReadState(out, key, read);
+    return _write(out);
+  }
 
   @override
   Future<void> applyEvents(
     List<ListEvent<M>> events, {
     required Map<ListId, List<Segment>> segments,
-  }) =>
-      _write(() async {
-        for (final event in events) {
-          final key = event.list.storageKey;
-          await _touch(key);
-          switch (event) {
-            case MessagesAdded<M>(:final items) ||
-                  MessagesUpdated<M>(:final items):
-              for (final message in items) {
-                await _put(key, message);
-              }
-            case MessagesDeleted<M>(:final ids):
-              for (final id in ids) {
-                await _delete(key, id);
-              }
-            case LocalAcked<M>(:final localId, :final serverMessage):
-              await _delete(key, localId);
-              await _put(key, serverMessage);
-            case ReadStateChanged<M>(:final state):
-              await _saveReadState(key, state);
-            case HistoryCleared<M>(:final upTo):
-              await database.customStatement(
-                'DELETE FROM messages WHERE list_key = ? AND '
-                '(ord < ? OR (ord = ? AND local_seq <= ?))',
-                [key, upTo.order, upTo.order, upTo.localSeq],
-              );
-            case LocalFailed<M>() || PinnedChanged<M>() || TypingChanged<M>():
-              break; // not persisted
+  }) {
+    final out = <_Statement>[];
+    for (final event in events) {
+      final key = event.list.storageKey;
+      _touch(out, key);
+      switch (event) {
+        case MessagesAdded<M>(:final items) || MessagesUpdated<M>(:final items):
+          for (final message in items) {
+            _put(out, key, message);
           }
-        }
-        for (final entry in segments.entries) {
-          await _replaceSegments(entry.key.storageKey, entry.value);
-        }
-      });
+        case MessagesDeleted<M>(:final ids):
+          for (final id in ids) {
+            _delete(out, key, id);
+          }
+        case LocalAcked<M>(:final localId, :final serverMessage):
+          _delete(out, key, localId);
+          _put(out, key, serverMessage);
+        case ReadStateChanged<M>(:final state):
+          _saveReadState(out, key, state);
+        case HistoryCleared<M>(:final upTo):
+          out.add((
+            'DELETE FROM messages WHERE list_key = ? AND '
+                '(ord < ? OR (ord = ? AND local_seq <= ?))',
+            [key, upTo.order, upTo.order, upTo.localSeq],
+          ));
+        case LocalFailed<M>() || PinnedChanged<M>() || TypingChanged<M>():
+          break; // not persisted
+      }
+    }
+    for (final entry in segments.entries) {
+      _replaceSegments(out, entry.key.storageKey, entry.value);
+    }
+    return _write(out);
+  }
 
   @override
-  Future<void> saveSnapshot(ListId list, ViewportSnapshot snapshot) =>
-      _write(() async {
-        await _touch(list.storageKey);
-        await database.customStatement(
-          'INSERT OR REPLACE INTO snapshots (list_key, json, saved_at) '
+  Future<void> saveSnapshot(ListId list, ViewportSnapshot snapshot) {
+    final out = <_Statement>[];
+    _touch(out, list.storageKey);
+    out.add((
+      'INSERT OR REPLACE INTO snapshots (list_key, json, saved_at) '
           'VALUES (?, ?, ?)',
-          [
-            list.storageKey,
-            jsonEncode(snapshot.toJson()),
-            snapshot.savedAt.millisecondsSinceEpoch,
-          ],
-        );
-      });
+      [
+        list.storageKey,
+        jsonEncode(snapshot.toJson()),
+        snapshot.savedAt.millisecondsSinceEpoch,
+      ],
+    ));
+    return _write(out);
+  }
 
   @override
-  Future<void> evict(EvictionPolicy policy) => _write(() async {
-        final cutoff = _clock()
-            .subtract(policy.dropListsUnopenedFor)
-            .millisecondsSinceEpoch;
-        final old = await database.customSelect(
-          'SELECT list_key FROM lists_meta WHERE last_opened_at < ?',
-          variables: [Variable<int>(cutoff)],
-        ).get();
-        for (final row in old) {
-          await _dropList(row.read<String>('list_key'));
-        }
-        final lists = await database
-            .customSelect(
-              'SELECT list_key FROM lists_meta ORDER BY last_opened_at',
-            )
-            .get();
-        for (final row in lists) {
-          await _trimList(row.read<String>('list_key'), policy);
-        }
-        // The global cap: least recently opened lists go first.
-        var total = (await database
-                .customSelect('SELECT COUNT(*) AS n FROM messages')
-                .getSingle())
-            .read<int>('n');
-        for (final row in lists) {
-          if (total <= policy.maxMessages) break;
-          final key = row.read<String>('list_key');
-          final count = await _count(key);
-          await _dropList(key);
-          total -= count;
-        }
-      });
-
-  Future<int> _count(String key) async => (await database.customSelect(
-        'SELECT COUNT(*) AS n FROM messages WHERE list_key = ?',
-        variables: [Variable<String>(key)],
-      ).getSingle())
-          .read<int>('n');
+  Future<void> evict(EvictionPolicy policy) async {
+    // Read what there is, decide, then write everything in one batch.
+    final out = <_Statement>[];
+    final cutoff =
+        _clock().subtract(policy.dropListsUnopenedFor).millisecondsSinceEpoch;
+    final lists = await database
+        .customSelect(
+          'SELECT list_key, last_opened_at FROM lists_meta '
+          'ORDER BY last_opened_at',
+        )
+        .get();
+    final counts = <String, int>{
+      for (final row in await database
+          .customSelect(
+            'SELECT list_key, COUNT(*) AS n FROM messages GROUP BY list_key',
+          )
+          .get())
+        row.read<String>('list_key'): row.read<int>('n'),
+    };
+    final kept = <String>[]; // least recently opened first
+    for (final row in lists) {
+      final key = row.read<String>('list_key');
+      if (row.read<int>('last_opened_at') < cutoff) {
+        _dropList(out, key);
+      } else {
+        counts[key] = await _trimList(out, key, policy, counts[key] ?? 0);
+        kept.add(key);
+      }
+    }
+    // The global cap: least recently opened lists go first.
+    var total = 0;
+    for (final key in kept) {
+      total += counts[key] ?? 0;
+    }
+    for (final key in kept) {
+      if (total <= policy.maxMessages) break;
+      _dropList(out, key);
+      total -= counts[key] ?? 0;
+    }
+    await _write(out);
+  }
 
   /// Keeps the newest messages of a list and the ones around its saved
-  /// position; recomputes the segments for what is left.
-  Future<void> _trimList(String key, EvictionPolicy policy) async {
-    if (await _count(key) <= policy.keepNewestPerList) return;
+  /// position, and recomputes the segments for what is left. Returns how
+  /// many messages stay.
+  Future<int> _trimList(
+    List<_Statement> out,
+    String key,
+    EvictionPolicy policy,
+    int count,
+  ) async {
+    if (count <= policy.keepNewestPerList) return count;
     final rows = await database.customSelect(
       'SELECT id, ord, local_seq FROM messages WHERE list_key = ? '
       'ORDER BY ord, local_seq, id',
@@ -285,44 +300,47 @@ final class DriftMessageCache<M> implements MessageCache<M> {
       (keep ? kept : removed).add(keys[i]);
     }
     for (final gone in removed) {
-      await _delete(key, gone.id);
+      _delete(out, key, gone.id);
     }
-    await _replaceSegments(
+    _replaceSegments(
+      out,
       key,
       clampSegments(await _segments(key), kept: kept, removed: removed),
     );
+    return kept.length;
   }
 
   @override
-  Future<void> clear([ListId? list]) => _write(() async {
-        if (list != null) {
-          await _dropList(list.storageKey);
-          return;
-        }
-        for (final table in SteadyCacheDatabase.tableNames) {
-          await database.customStatement('DELETE FROM $table');
-        }
-      });
+  Future<void> clear([ListId? list]) {
+    final out = <_Statement>[];
+    if (list != null) {
+      _dropList(out, list.storageKey);
+    } else {
+      for (final table in SteadyCacheDatabase.tableNames) {
+        out.add(('DELETE FROM $table', const []));
+      }
+    }
+    return _write(out);
+  }
 
-  Future<void> _dropList(String key) async {
+  void _dropList(List<_Statement> out, String key) {
     for (final table in SteadyCacheDatabase.tableNames) {
-      await database
-          .customStatement('DELETE FROM $table WHERE list_key = ?', [key]);
+      out.add(('DELETE FROM $table WHERE list_key = ?', [key]));
     }
   }
 
-  Future<void> _touch(String key) => database.customStatement(
+  void _touch(List<_Statement> out, String key) => out.add((
         'INSERT OR IGNORE INTO lists_meta (list_key, last_opened_at) '
-        'VALUES (?, ?)',
+            'VALUES (?, ?)',
         [key, _clock().millisecondsSinceEpoch],
-      );
+      ));
 
-  Future<void> _put(String key, M message) {
+  void _put(List<_Statement> out, String key, M message) {
     final k = adapter.keyOf(message);
-    return database.customStatement(
+    out.add((
       'INSERT OR REPLACE INTO messages (list_key, id, ord, local_seq, '
-      'date_ms, group_id, sender_id, is_outgoing, mentions_me, payload) '
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'date_ms, group_id, sender_id, is_outgoing, mentions_me, payload) '
+          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         key,
         k.id,
@@ -335,28 +353,31 @@ final class DriftMessageCache<M> implements MessageCache<M> {
         if (adapter.mentionsMe(message)) 1 else 0,
         codec.encode(message),
       ],
-    );
+    ));
   }
 
-  Future<void> _delete(String key, String id) => database.customStatement(
+  void _delete(List<_Statement> out, String key, String id) => out.add((
         'DELETE FROM messages WHERE list_key = ? AND id = ?',
         [key, id],
-      );
+      ));
 
-  Future<void> _saveReadState(String key, ReadState state) =>
-      database.customStatement(
+  void _saveReadState(List<_Statement> out, String key, ReadState state) =>
+      out.add((
         'INSERT OR REPLACE INTO read_state (list_key, json) VALUES (?, ?)',
         [key, jsonEncode(state.toJson())],
-      );
+      ));
 
-  Future<void> _replaceSegments(String key, List<Segment> segments) async {
-    await database
-        .customStatement('DELETE FROM segments WHERE list_key = ?', [key]);
+  void _replaceSegments(
+    List<_Statement> out,
+    String key,
+    List<Segment> segments,
+  ) {
+    out.add(('DELETE FROM segments WHERE list_key = ?', [key]));
     for (final segment in segments) {
-      await database.customStatement(
+      out.add((
         'INSERT INTO segments (list_key, first_ord, first_seq, first_id, '
-        'last_ord, last_seq, last_id, reached_oldest, reached_newest) '
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'last_ord, last_seq, last_id, reached_oldest, reached_newest) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           key,
           segment.first.order,
@@ -368,14 +389,50 @@ final class DriftMessageCache<M> implements MessageCache<M> {
           if (segment.reachedOldest) 1 else 0,
           if (segment.reachedNewest) 1 else 0,
         ],
-      );
+      ));
     }
   }
 
-  /// One transaction per page or event batch (§8.3), then a notification
-  /// for the other tabs.
-  Future<void> _write(Future<void> Function() body) async {
-    await database.transaction(body);
+  /// All statements of a page, an event batch or an eviction go to the
+  /// database as one atomic request (§8.3), followed by a notification for
+  /// the other tabs.
+  ///
+  /// The request carries its own BEGIN and COMMIT. A drift transaction or
+  /// batch is several requests (begin, statements, commit); a browser tab
+  /// that is frozen between two of them, for example when it goes into the
+  /// back/forward cache, would keep the transaction open, and the other
+  /// tabs, which share the connection, would wait forever.
+  Future<void> _write(List<_Statement> statements) async {
+    if (statements.isEmpty) return;
+    final sql = <String>[];
+    final indexOf = <String, int>{};
+    final arguments = <ArgumentsForBatchedStatement>[];
+    void add(String statement, List<Object?> values) {
+      final index = indexOf[statement] ??= () {
+        sql.add(statement);
+        return sql.length - 1;
+      }();
+      arguments.add(ArgumentsForBatchedStatement(index, values));
+    }
+
+    add('BEGIN IMMEDIATE', const []);
+    for (final (statement, values) in statements) {
+      add(statement, values);
+    }
+    add('COMMIT', const []);
+    await database.doWhenOpened((executor) async {
+      try {
+        await executor.runBatched(BatchedStatements(sql, arguments));
+      } catch (_) {
+        // A statement failed after BEGIN: leave no transaction behind.
+        try {
+          await executor.runCustom('ROLLBACK');
+        } catch (_) {
+          // There was none (BEGIN itself failed).
+        }
+        rethrow;
+      }
+    });
     _ownNotifications++;
     database.notifyUpdates({const TableUpdate(_messages)});
   }
@@ -395,3 +452,6 @@ final class DriftMessageCache<M> implements MessageCache<M> {
         return true;
       }).map((_) => const CacheChange());
 }
+
+/// One SQL statement with its arguments.
+typedef _Statement = (String sql, List<Object?> arguments);

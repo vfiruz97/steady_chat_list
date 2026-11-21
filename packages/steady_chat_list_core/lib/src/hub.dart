@@ -130,6 +130,7 @@ final class MessageListHub<M> {
     this.viewportStore,
     this.cache,
     this.evictionPolicy = const EvictionPolicy(),
+    this.cacheTimeout = const Duration(seconds: 3),
     int memoryLimitPerList = 1000,
     int openListsInMemory = 10,
     this.releaseDelay = const Duration(seconds: 30),
@@ -170,6 +171,12 @@ final class MessageListHub<M> {
   /// What the [cache] keeps; applied once when the first list is read from
   /// it.
   final EvictionPolicy evictionPolicy;
+
+  /// How long [hydrate] waits for the cache. A cache that does not answer
+  /// in time (a locked database, a storage that hangs) is reported through
+  /// [onError] and the list loads from the source: a cache may make a chat
+  /// faster, it must never keep it from opening.
+  final Duration cacheTimeout;
 
   /// How long the event subscription of a list is kept after its last
   /// controller detached.
@@ -230,9 +237,9 @@ final class MessageListHub<M> {
     try {
       if (!_evicted) {
         _evicted = true;
-        await cache.evict(evictionPolicy);
+        await cache.evict(evictionPolicy).timeout(cacheTimeout);
       }
-      final cached = await cache.load(list);
+      final cached = await cache.load(list).timeout(cacheTimeout);
       if (cached == null || _disposed) return;
       final snapshot = cached.snapshot;
       if (snapshot != null) _cachedSnapshots[list] = snapshot;
@@ -305,9 +312,46 @@ final class MessageListHub<M> {
       _write(() async {
         final cached = await cache.load(list);
         if (cached == null || _disposed) return;
+        // A message another tab is still sending belongs to that tab: only
+        // it receives the ack that replaces it. Here it would stay
+        // "sending" forever, next to the confirmed message that arrives
+        // through the events or the next merge.
+        final messages = <M>[];
+        final keys = <MessageKey>[];
+        for (final message in cached.messages) {
+          final key = adapter.keyOf(message);
+          if (key.localSeq > 0 && !listStore.contains(key.id)) continue;
+          messages.add(message);
+          keys.add(key);
+        }
+        keys.sort();
+        // A segment that ended with such a message ends with the last
+        // message before it; it still reaches the newest one.
+        final segments = <Segment>[];
+        for (final segment in cached.segments) {
+          var last = segment.last;
+          if (last.localSeq > 0 && !listStore.contains(last.id)) {
+            final before = keys.lastWhere(
+              (key) => key <= last && key >= segment.first,
+              orElse: () => segment.first,
+            );
+            if (before.localSeq > 0 && !listStore.contains(before.id)) {
+              continue; // nothing of this segment is ours to show
+            }
+            last = before;
+          }
+          segments.add(
+            Segment(
+              first: segment.first,
+              last: last,
+              reachedOldest: segment.reachedOldest,
+              reachedNewest: segment.reachedNewest,
+            ),
+          );
+        }
         listStore.restore(
-          cached.messages,
-          cached.segments,
+          messages,
+          segments,
           readState: cached.readState,
         );
       });

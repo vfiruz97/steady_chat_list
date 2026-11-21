@@ -326,7 +326,13 @@ The schema is plain SQL in `SteadyCacheDatabase`, so the package works with ever
 
 **D111. Benchmarks measure frame times with `SchedulerBinding.addTimingsCallback` and run with `flutter drive --profile`.** `traceAction` needs a VM service connection that is not available on every target; frame timings are the same numbers the engine reports to DevTools. "Build" in the results is the whole UI-thread part of a frame (build, layout and paint), which is stricter than the "build + layout" of §14.1. Budgets are asserted with 10% slack in profile and release builds only. There is no CI in the repository yet; the same command is what a CI job would run.
 
-**D112. Measured on: macOS, an Android emulator, a Galaxy S24 Ultra (profile), and an iPhone simulator (debug, correctness only). Not measured: a mid-range Android phone, a physical iPhone, and Chrome frame times.**
+**D112. Measured on: macOS, an Android emulator, a Galaxy S24 Ultra (profile), Chrome (release), and an iPhone simulator (debug, correctness only). Not measured: a mid-range Android phone and a physical iPhone.**
+
+**D113. Every write of the Drift cache is one request that carries its own `BEGIN IMMEDIATE` and `COMMIT`; reads hold no transaction.** A drift transaction or batch is several messages to the database (begin, statements, commit). On the web all tabs share one connection in a worker, and a tab that the browser freezes between two of those messages (it goes into the back/forward cache when the user navigates away) leaves the transaction open: every other tab, and the same tab after coming back, then waits forever. Found with two real Chrome tabs. A write is now `executor.runBatched` with the transaction statements inside, which the worker runs to the end whatever happens to the tab; a failed statement is followed by `ROLLBACK`. Eviction reads first and then writes once.
+
+**D114. `MessageListHub.cacheTimeout` (3 s).** `hydrate` gives up on a cache that does not answer, reports it through `onError`, and the list loads from the source. A cache may make a chat faster; it must never keep it from opening. Verified against the locked database of D113.
+
+**D115. A message that another tab is still sending is not merged from the shared cache.** Only the sending tab receives the ack that replaces it; in the other tab it stayed "sending" forever next to the confirmed message. The confirmed message is merged as usual. (D103 is now verified with two real tabs.)
 
 ## Known limits
 

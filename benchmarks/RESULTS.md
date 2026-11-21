@@ -71,6 +71,24 @@ A physical phone over USB, profile mode. It is a flagship: these numbers show a 
 
 The example app (profile build) was also driven on this phone: with 50 incoming messages/s and 200 reactions/s switched on while scrolled up, its on-screen counter showed 0 slow frames of the last 120 (build p95 4.5 ms, frame max 10 ms); the SQLite cache read a chat in 89 ms on its first use; after the app was force-stopped and started again it reopened on the same page with the message area pixel-identical.
 
+### Chrome 158 on macOS arm64 (CanvasKit), Flutter 3.50.1, release build
+
+The benchmark built as a web page (`flutter build web --release -t integration_test/performance_test.dart`) and opened in Chrome; results are read from the console. One run. A profile build is compiled with much weaker optimization on the web and is two to three times slower; its numbers are not listed.
+
+| Scenario | Result | Budget (§14.1) |
+| --- | --- | --- |
+| Fling through 5,000 messages (3,888 frames) | build p50 1.5 ms, p95 6.0 ms; 43 frames over 16 ms (1.1%), 2 over 32 ms, slowest 72 ms; no blank frame | p95 ≤ 8 ms ✅, none over 32 ms ❌ |
+| Open a cached chat | first frame shows the messages; build median 13.5 ms, max 14.4 ms | same frame, ≤ 16 ms ✅ |
+| Jump, target on the server (20 jumps) | median 583 ms, max 586 ms; no blank frame | ≤ 700 ms ✅ |
+| Jump, target in memory (20 jumps) | median 426 ms, max 436 ms | ≤ 450 ms ✅ |
+| 50 incoming messages/s for 30 s | build p95 2.2 ms, max 3.8 ms; 0 frames over 16 ms | no dropped frames ✅ |
+| 200 reaction updates/s for 15 s | build p95 1.3 ms, max 12.1 ms; 0 frames over 16 ms | no dropped frames ✅ |
+| Memory after scrolling 100,000 messages | 1,000 messages held throughout (process memory is not readable in a browser) | flat ✅ (data held) |
+
+The fling is where the web differs from native: two frames of 3,888 took longer than 32 ms. The storms have no slow frame, so the cost is in bringing many new rows on screen at once at fling speed (text layout in CanvasKit, and possibly garbage collection); it was not investigated further.
+
+Two tabs sharing the Drift cache were also tried for real in this Chrome: a message sent in one tab appears in the other, once, through the shared database (the tabs' simulated servers are separate, so it can only have come from the cache).
+
 ### iPhone 16 Pro simulator, Flutter 3.50.1 (debug build)
 
 Simulators cannot run profile builds, so this is a correctness run; the times are debug-mode times and are not compared with the budgets.
@@ -110,5 +128,4 @@ In Chrome (IndexedDB storage, the example app) reading a cached chat of a few hu
 ### Not measured
 
 - A mid-range Android phone (the budgets of §14.1 name one; the phone measured is a flagship) and a physical iPhone.
-- Chrome frame times. The example was exercised in Chrome (release build) for correctness: paging, jumps, search, the cache and restoring the position after a reload; its frame times were not recorded.
 - There is no CI yet; the command above is what a CI job would run, and it fails when a budget is exceeded by more than 10%.

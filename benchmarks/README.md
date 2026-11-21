@@ -8,6 +8,12 @@ flutter drive --profile -d <device> \
   --driver=test_driver/integration_test.dart \
   --target=integration_test/performance_test.dart
 
+# performance in Chrome: build it as a page, open it, read the BENCH lines
+# in the browser console (use a release build; reload without cache after
+# rebuilding)
+flutter build web --release -t integration_test/performance_test.dart
+(cd build/web && python3 -m http.server 8766)
+
 # the anchor stress test on a device, emulator or browser
 flutter test integration_test/anchor_stress_test.dart -d <device>
 

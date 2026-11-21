@@ -9,6 +9,9 @@ All packages in this repository share one version.
 - **Changed:** eviction drops what is farthest from the protected ranges, also between two of them, and splits the segment at the hole. Before, everything between two protected ranges (two views of one chat, or the saved position and the window during one long scroll) was kept, so memory grew with the distance scrolled.
 - **Changed:** `OpenContext.restoreIslandsAfterRestart` defaults to true.
 
+- `MessageListHub(cacheTimeout:)`: a cache that does not answer within 3 s is reported and the list loads from the source.
+- **Fixed:** a message another browser tab was still sending was merged from the shared cache and stayed "sending" forever.
+
 ### steady_chat_list
 
 - `MessageListView(debugOverlay: true)` and `controller.debugDescribe()`.
@@ -18,6 +21,7 @@ All packages in this repository share one version.
 
 ### steady_chat_list_drift
 
+- **Fixed:** on the web, a tab that was navigated away in the middle of a write could leave a transaction open and block the cache for every tab. Each write is now a single atomic request; reads hold no transaction.
 - `benchmark/drift_benchmark.dart`.
 
 ### Example and benchmarks

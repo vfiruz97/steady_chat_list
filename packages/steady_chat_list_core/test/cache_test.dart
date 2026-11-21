@@ -228,6 +228,39 @@ void main() {
       await turn();
       await turn();
       expect(store.liveSegment!.last, k(1020));
+      // The other tab is sending a message: it is not ours to show.
+      await cache.applyEvents(
+        const [
+          MessagesAdded(chat, [Msg(1020, id: 'local-1', localSeq: 1)]),
+        ],
+        segments: {
+          chat: [
+            Segment(
+              first: k(810),
+              last: const MessageKey(order: 1020, id: 'local-1', localSeq: 1),
+              reachedNewest: true,
+            ),
+          ],
+        },
+      );
+      shared.changes.add(const CacheChange(chat));
+      await turn();
+      await turn();
+      expect(store.contains('local-1'), isFalse);
+      expect(store.liveSegment!.last, k(1020));
+      store.debugCheckInvariants();
+      // Its server confirmed it: the confirmed message arrives.
+      await cache.applyEvents(
+        const [LocalAcked(chat, 'local-1', Msg(1030))],
+        segments: {
+          chat: [Segment(first: k(810), last: k(1030), reachedNewest: true)],
+        },
+      );
+      shared.changes.add(const CacheChange(chat));
+      await turn();
+      await turn();
+      expect(store.contains('local-1'), isFalse);
+      expect(store.liveSegment!.last, k(1030));
       shared.changes.add(const CacheChange()); // "something changed"
       shared.changes.add(const CacheChange(ListId('closed')));
       shared.changes.addError(StateError('channel'));
@@ -237,6 +270,23 @@ void main() {
       hub.dispose();
       shared.changes.add(const CacheChange(chat));
       await turn();
+    });
+
+    test('a cache that never answers does not keep a list from opening',
+        () async {
+      final hub = MessageListHub<Msg>(
+        source: source,
+        adapter: const MsgAdapter(),
+        cache: _HangingCache(),
+        cacheTimeout: const Duration(milliseconds: 30),
+        onError: (error, stackTrace) => errors.add(error),
+      );
+      await hub.hydrate(chat); // completes
+      expect(errors.single, isA<TimeoutException>());
+      final store = hub.attach(chat);
+      await hub.fetch(req(PageDirection.latest));
+      expect(store.isEmpty, isFalse);
+      hub.dispose();
     });
 
     test('a broken cache is reported and the list still works', () async {
@@ -432,6 +482,16 @@ class _SharedCache implements MessageCache<Msg> {
 
   @override
   Future<void> clear([ListId? list]) => inner.clear(list);
+}
+
+/// A cache whose reads never complete (a locked database).
+class _HangingCache extends _SharedCache {
+  _HangingCache()
+      : super(InMemoryMessageCache<Msg>(adapter: const MsgAdapter()));
+
+  @override
+  Future<CachedList<Msg>?> load(ListId list, {int limit = 600}) =>
+      Completer<CachedList<Msg>?>().future;
 }
 
 class _BrokenCache implements MessageCache<Msg> {

@@ -308,6 +308,58 @@ void main() {
     await rebuilt.close();
   });
 
+  test('a write that fails changes nothing and leaves no transaction open',
+      () async {
+    await cache.applyPage(
+      latest(),
+      PageResult(items: chats(1, 3)),
+      segments: [seg(1, 3)],
+    );
+    // Break the second half of the next write.
+    await cache.database.customStatement(
+      'ALTER TABLE segments RENAME TO segments_gone',
+    );
+    await expectLater(
+      cache.applyPage(
+        latest(),
+        PageResult(items: chats(4, 9)),
+        segments: [seg(1, 9)],
+      ),
+      throwsA(anything),
+    );
+    await cache.database.customStatement(
+      'ALTER TABLE segments_gone RENAME TO segments',
+    );
+    // The messages of the failed page were rolled back with it.
+    final cached = (await cache.load(chat))!;
+    expect(ids(cached), [1, 2, 3]);
+    expect(cached.segments, [seg(1, 3)]);
+    // And the next write starts its own transaction without trouble.
+    await cache.applyPage(
+      latest(),
+      PageResult(items: chats(4, 5)),
+      segments: [seg(1, 5)],
+    );
+    expect(ids((await cache.load(chat))!), [1, 2, 3, 4, 5]);
+  });
+
+  test('many writes and reads at the same time stay consistent', () async {
+    await Future.wait([
+      for (var page = 0; page < 20; page++) ...[
+        cache.applyPage(
+          latest(),
+          PageResult(items: chats(page * 10 + 1, page * 10 + 10)),
+          segments: [seg(1, page * 10 + 10)],
+        ),
+        cache.load(chat),
+        cache.saveSnapshot(chat, snapshot(1)),
+      ],
+    ]);
+    final cached = (await cache.load(chat))!;
+    expect(ids(cached), hasLength(200));
+    expect(cached.snapshot, isNotNull);
+  });
+
   test('watch reports changes made by others, not our own', () async {
     final changes = <CacheChange>[];
     final sub = cache.watch().listen(changes.add);
