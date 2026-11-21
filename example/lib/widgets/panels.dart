@@ -247,7 +247,8 @@ class _PerfHudState extends State<PerfHud> {
     final slow = totals.where((t) => t > 16.7).length;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Colors.black.withAlpha(190),
+        // Nearly opaque: it sits on top of messages.
+        color: Colors.black.withAlpha(235),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Padding(

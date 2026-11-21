@@ -69,6 +69,8 @@ A physical phone over USB, profile mode. It is a flagship: these numbers show a 
 | 200 reaction updates/s for 15 s | build p95 1.7 ms, max 8.5 ms; 0 builds over 16 ms; one raster spike of 37 ms | no dropped frames: one slow raster frame ⚠️ |
 | Memory after scrolling 100,000 messages | 1,000 messages held throughout; process 291 MB → 295 MB (+1.4%) | flat ±10% ✅ |
 
+The example app (profile build) was also driven on this phone: with 50 incoming messages/s and 200 reactions/s switched on while scrolled up, its on-screen counter showed 0 slow frames of the last 120 (build p95 4.5 ms, frame max 10 ms); the SQLite cache read a chat in 89 ms on its first use; after the app was force-stopped and started again it reopened on the same page with the message area pixel-identical.
+
 ### iPhone 16 Pro simulator, Flutter 3.50.1 (debug build)
 
 Simulators cannot run profile builds, so this is a correctness run; the times are debug-mode times and are not compared with the budgets.
