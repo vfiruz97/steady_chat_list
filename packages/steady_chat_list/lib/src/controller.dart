@@ -1556,7 +1556,10 @@ class MessageListController<M> extends ChangeNotifier {
     if (segment == null) return null;
     final read = store.readState.lastReadInbox;
     if (read == null) return segment.reachedOldest ? divider : null;
-    return segment.contains(read) ? divider : null;
+    if (segment.contains(read)) return divider;
+    // Reading stopped before the first message that exists: all of it is
+    // unread.
+    return segment.reachedOldest && read < segment.first ? divider : null;
   }
 
   void _opened(OpenResolution resolution) {
@@ -2111,12 +2114,15 @@ class MessageListController<M> extends ChangeNotifier {
     final average = (before + metrics.viewport.height + after) / _keys.length;
     final full =
         _keys.length + _windowPolicy.pageSize > _windowPolicy.windowSize;
-    if (_windowPolicy.shouldExtend(
-      distanceToEdge: before,
-      distanceToOtherEdge: after,
-      averageItemExtent: average,
-      windowIsFull: full,
-    )) {
+    // An edge with nothing left to load must not keep the other one from
+    // loading: a short window at the start of the history is near both.
+    if (!_exhausted(ListEdge.older) &&
+        _windowPolicy.shouldExtend(
+          distanceToEdge: before,
+          distanceToOtherEdge: after,
+          averageItemExtent: average,
+          windowIsFull: full,
+        )) {
       unawaited(_extend(ListEdge.older));
     } else if (_windowPolicy.shouldExtend(
       distanceToEdge: after,
@@ -2126,6 +2132,19 @@ class MessageListController<M> extends ChangeNotifier {
     )) {
       unawaited(_extend(ListEdge.newer));
     }
+  }
+
+  /// Whether there is nothing beyond the window toward [edge]: no loaded
+  /// message and no page to fetch.
+  bool _exhausted(ListEdge edge) {
+    final store = _store;
+    if (store == null || _keys.isEmpty) return true;
+    final older = edge == ListEdge.older;
+    final key = older ? _keys.first : _keys.last;
+    final segment = store.segmentOf(key);
+    if (segment == null) return true;
+    if (older ? key > segment.first : key < segment.last) return false;
+    return older ? segment.reachedOldest : segment.reachedNewest;
   }
 
   /// Grows the window toward [edge]: from the store when it has more keys

@@ -8,6 +8,24 @@ import 'support/fake_chat_server.dart';
 import 'support/fake_viewport.dart';
 
 void main() {
+  test('a short window at the start of the history still pages down', () {
+    // Everything is unread: the chat opens at its first message with half
+    // a page loaded, close to both ends of the window.
+    run(env: (async) => Env(async, count: 200), (env) {
+      env.server.readState = ReadState(lastReadInbox: k(5), unreadCount: 200);
+      final controller = env.controller()..open();
+      final view = FakeViewport(controller);
+      env.settle();
+      expect(controller.window.value.unreadDividerBefore, k(10));
+      expect(view.visibleOrders.first, 10);
+      for (var i = 0; i < 80; i++) {
+        view.scrollBy(300);
+        env.settle();
+      }
+      expect(view.visibleOrders.last, 2000, reason: 'reached the newest');
+    });
+  });
+
   test('scrollDownButtonDistance: the button shows that many px from the end',
       () {
     run((env) {

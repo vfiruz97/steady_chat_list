@@ -5,6 +5,8 @@ All packages in this repository share one version.
 ## 0.1.4
 
 - **Fixed:** a chat that was closed and opened again in the same app run kept showing messages deleted or edited on the server meanwhile. Once the hub stops listening to a closed list (`releaseDelay`), what stays in memory is checked against the server when it comes on screen again, like cached messages.
+- **Fixed:** a list that opened with few messages at the very start of the history (a new chat, or a chat where every message is unread) did not load newer messages when scrolled down: the older edge, which had nothing left to load, kept the newer one from loading.
+- **Fixed:** a chat where reading stopped before its first message now opens at the first unread message with the divider, not at the bottom.
 - `MessageListConfig.scrollDownButtonDistance`: show the scroll-down button a number of pixels from the end instead of a share of the viewport height.
 - Docs: `MessageListView.keyboardShortcuts` takes the keyboard focus on click; turn it off inside a `SelectionArea`.
 
