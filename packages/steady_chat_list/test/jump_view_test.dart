@@ -48,6 +48,38 @@ void main() {
     await h.dispose();
   });
 
+  testWidgets('jump to bottom never shows blank space below the last message',
+      (tester) async {
+    final h = ListHarness(tester, count: 1000);
+    // Tall rows right below the opened message: until the rest is laid
+    // out, the list takes its end to be far below the real one.
+    for (var order = 9810; order <= 9830; order += 10) {
+      h.heights['m$order'] = 700;
+    }
+    h.controller.open(target: OpenTarget.message(k(9800)));
+    await h.pump();
+    expect(h.controller.window.value.keys.last, k(10000));
+    expect(h.item(10000), findsNothing, reason: 'the end is not laid out');
+
+    JumpResult? result;
+    h.controller.jumpToBottom().then((r) => result = r);
+    double? last;
+    for (var frame = 0; frame < 80 && result == null; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(h.visible, isNotEmpty, reason: 'frame $frame is blank');
+      if (h.item(10000).evaluate().isEmpty) continue;
+      final bottom = h.bottomOf(10000);
+      expect(bottom, greaterThanOrEqualTo(599.5), reason: 'frame $frame');
+      if (last != null) {
+        expect(bottom, lessThanOrEqualTo(last + 0.5), reason: 'only rises');
+      }
+      last = bottom;
+    }
+    expect(result!.outcome, JumpOutcome.arrived);
+    expect(h.bottomOf(10000), 600);
+    await h.dispose();
+  });
+
   testWidgets('jump to bottom inside the window just scrolls', (tester) async {
     final h = ListHarness(tester);
     h.controller.open();

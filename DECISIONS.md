@@ -348,6 +348,8 @@ The schema is plain SQL in `SteadyCacheDatabase`, so the package works with ever
 
 **D122. An open that fetched its page does not refresh it.** After an open at a saved position, the first unread message or a target message, the controller asked for the messages newer than the shown segment. When the page was fetched by that same open, the request brought nothing new. It is skipped; a list shown from memory still refreshes.
 
+**D123. A jump to the bottom places the window from its bottom unless the last row is laid out.** A window opened around a message keeps the rows after it in a lazily built list, and the end of that list is an estimate until its last row is built. Tall rows near the start (an image) put the estimate thousands of pixels past the real end. A scroll aimed there showed blank space and then fell back to the last message. Found in the first real app. The window is now shown again bottom-first, where the end is exact, and the scroll rises to it, as it already did when the newest messages were not in the window.
+
 ## Known limits
 
 **L1. Stale pages are the controller's job.** The store accepts whatever it is given. Two cases can make a late page wrong and are excluded in the property test: a late "this is the newest" answer, and a page fetched before an orphan was evicted. Generations and single flight (§15, milestone 2) drop such pages before they reach the store.

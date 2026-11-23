@@ -1,3 +1,7 @@
+## 0.1.7
+
+- **Fixed:** a jump to the bottom could scroll past the last message, show blank space and fall back, when rows below were much taller or shorter than the list had estimated (an image, for example). It now always rises to the last message.
+
 ## 0.1.6
 
 - A list that opens at a saved position shows the unread divider too, when the first unread message is loaded there. Before, the divider appeared only when the list opened at the first unread message.

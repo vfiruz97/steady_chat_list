@@ -1,3 +1,7 @@
+## 0.1.7
+
+- No changes. Released together with `steady_chat_list` 0.1.7.
+
 ## 0.1.6
 
 - No changes. Released together with `steady_chat_list` 0.1.6.

@@ -972,7 +972,14 @@ class MessageListController<M> extends ChangeNotifier {
 
     try {
       if (bottom) {
-        if (!_endsAtNewest || _keys.isEmpty) {
+        // Until the last row is laid out, the end of the content is an
+        // estimate. Tall rows above can put it far past the real end, and
+        // a scroll aimed there would show blank space and then fall back.
+        // The window is placed from its bottom instead, where the end is
+        // exact, and the scroll rises to it.
+        final endKnown =
+            _keys.isEmpty || (_viewport?.isBuilt(_keys.last) ?? true);
+        if (!_endsAtNewest || _keys.isEmpty || !endKnown) {
           if (store.liveSegment == null && !store.isKnownEmpty) {
             final loaded = await load(
               PageDirection.latest,
