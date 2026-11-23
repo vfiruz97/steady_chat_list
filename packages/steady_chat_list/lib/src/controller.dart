@@ -1434,7 +1434,9 @@ class MessageListController<M> extends ChangeNotifier {
             continue;
           }
           final exact = anchor.id == snapshot.anchorKey.id;
-          _dividerKey = null;
+          // The reader returns to where they were; when the first unread
+          // message is loaded there too, the divider still marks it.
+          _dividerKey = _trustedDivider(store);
           _show(
             store,
             around(anchor),

@@ -2,6 +2,10 @@
 
 All packages in this repository share one version.
 
+## 0.1.6
+
+- A list that opens at a saved position shows the unread divider too, when the first unread message is loaded there. Before, the divider appeared only when the list opened at the first unread message.
+
 ## 0.1.5
 
 - Fewer requests on open: a list that opens on a page it has just fetched (a saved position, the first unread message or a target message that was not in memory) no longer asks for the newer messages right after it. A list opened from memory still catches up as before.

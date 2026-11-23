@@ -292,6 +292,29 @@ void main() {
       });
     });
 
+    test('a restored position still shows the divider', () {
+      run((env) {
+        final first = env.controller()..open();
+        final view = FakeViewport(first);
+        env.settle();
+        view.scrollBy(-725);
+        env.settle(Duration.zero);
+        first.dispose();
+
+        // 20 messages arrived meanwhile; the app knows where reading
+        // stopped.
+        final second = env.controller()
+          ..setReadState(ReadState(lastReadInbox: k(9800), unreadCount: 20));
+        OpenResolution? how;
+        second.open().then((r) => how = r);
+        final restored = FakeViewport(second);
+        env.settle();
+        expect(how, OpenResolution.sessionRestore);
+        expect(restored.yOf(k(9740)), -25, reason: 'where the reader left');
+        expect(second.window.value.unreadDividerBefore, k(9810));
+      });
+    });
+
     test('2 unread: aligned to the bottom, no extra fetch', () {
       run((env) {
         env.server.readState =

@@ -344,6 +344,10 @@ The schema is plain SQL in `SteadyCacheDatabase`, so the package works with ever
 
 **D120. An edge with nothing left to load does not take part in the paging rule.** `_maybePage` asked the older edge first and the newer one only otherwise. A window shorter than the preload distance at the start of the history is near both edges, so the older edge, already at the end, was chosen on every frame and the list never loaded downward. Found in the first real app: a chat opened at its first unread message, which was also its first message. The unread divider is also trusted when the read position is before the first message of a segment that reached the oldest end.
 
+**D121. A list that opens at a saved position shows the unread divider too.** The divider was drawn only when the list opened at the first unread message. An app that prefers the saved position (the reader returns to where they were) then had no mark of where the new messages start. The divider is now set on a restore as well, under the same rule as before: only when the messages around the read position are loaded.
+
+**D122. An open that fetched its page does not refresh it.** After an open at a saved position, the first unread message or a target message, the controller asked for the messages newer than the shown segment. When the page was fetched by that same open, the request brought nothing new. It is skipped; a list shown from memory still refreshes.
+
 ## Known limits
 
 **L1. Stale pages are the controller's job.** The store accepts whatever it is given. Two cases can make a late page wrong and are excluded in the property test: a late "this is the newest" answer, and a page fetched before an orphan was evicted. Generations and single flight (§15, milestone 2) drop such pages before they reach the store.
