@@ -8,6 +8,27 @@ import 'support/fake_chat_server.dart';
 import 'support/fake_viewport.dart';
 
 void main() {
+  test('scrollDownButtonDistance: the button shows that many px from the end',
+      () {
+    run((env) {
+      final controller = env.controller(
+        config: const MessageListConfig(scrollDownButtonDistance: 60),
+      )..open();
+      final view = FakeViewport(controller);
+      env.settle();
+      expect(controller.showScrollDownButton.value, isFalse);
+      view.scrollBy(-50);
+      env.settle();
+      expect(controller.showScrollDownButton.value, isFalse);
+      view.scrollBy(-20);
+      env.settle();
+      expect(controller.showScrollDownButton.value, isTrue);
+      view.scrollBy(70);
+      env.settle();
+      expect(controller.showScrollDownButton.value, isFalse);
+    });
+  });
+
   test('local messages: sending, acked in place, failed', () {
     run((env) {
       final controller = env.controller()..open();

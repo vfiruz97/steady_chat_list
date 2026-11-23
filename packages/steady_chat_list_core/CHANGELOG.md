@@ -1,3 +1,7 @@
+## 0.1.4
+
+- **Fixed:** a chat that was closed and opened again in the same app run kept showing messages deleted or edited on the server meanwhile. Once the hub stops listening to a closed list (`releaseDelay`), what stays in memory is checked against the server when it comes on screen again, like cached messages.
+
 ## 0.1.3
 
 - **Fixed:** messages read from the cache that were deleted or edited on the server meanwhile are corrected by the next page that covers them. `MessageListHub.isUnverified`.

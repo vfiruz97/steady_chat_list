@@ -1288,6 +1288,7 @@ class MessageListController<M> extends ChangeNotifier {
     _token.cancel();
     _token = CancellationToken();
     _verifying = false;
+    _refreshing = false;
     _verifyTried = null;
     _verifyFailed = false;
     _edgeBusy.clear();
@@ -1573,6 +1574,9 @@ class MessageListController<M> extends ChangeNotifier {
     final store = _store;
     if (store == null || _keys.isEmpty && !latest) return;
     final wasAtNewest = _endsAtNewest;
+    // The refresh may confirm what is on screen: verify after it, not
+    // next to it.
+    _refreshing = true;
     if (latest) {
       await _fetchQuietly(
         generation,
@@ -1582,15 +1586,18 @@ class MessageListController<M> extends ChangeNotifier {
       );
     } else {
       final segment = store.segmentOf(_keys.last);
-      if (segment == null) return;
-      await _fetchQuietly(
-        generation,
-        PageDirection.newer,
-        segment.last,
-        _windowPolicy.pageSize,
-      );
+      if (segment != null) {
+        await _fetchQuietly(
+          generation,
+          PageDirection.newer,
+          segment.last,
+          _windowPolicy.pageSize,
+        );
+      }
     }
     if (_stale(generation)) return;
+    _refreshing = false;
+    _maybeVerify();
     // More than a page was missed: the old data is an island now. A list
     // that was showing the newest messages moves to the real newest ones.
     final live = store.liveSegment;
@@ -1766,7 +1773,8 @@ class MessageListController<M> extends ChangeNotifier {
                   .shouldStick(userDragging: metrics.userDragging));
       showButton = !_endsAtNewest ||
           metrics.extentAfter >
-              config.scrollDownButtonThreshold * metrics.viewport.height;
+              (config.scrollDownButtonDistance ??
+                  config.scrollDownButtonThreshold * metrics.viewport.height);
     }
     if (_isAtBottom.value != atBottom) {
       _isAtBottom.value = atBottom;
@@ -2273,6 +2281,7 @@ class MessageListController<M> extends ChangeNotifier {
   }
 
   bool _verifying = false;
+  bool _refreshing = false;
   bool _verifyFailed = false;
   String? _verifyTried;
 
@@ -2281,7 +2290,7 @@ class MessageListController<M> extends ChangeNotifier {
   /// fetched and reconciled. The viewport does not move.
   void _maybeVerify() {
     final metrics = _metrics;
-    if (_verifying || _verifyFailed || metrics == null) return;
+    if (_verifying || _refreshing || _verifyFailed || metrics == null) return;
     if (metrics.items.isEmpty || !identical(_store, _shownStore)) return;
     MessageKey? stale;
     for (final key in [metrics.items.first.key, metrics.items.last.key]) {

@@ -272,9 +272,9 @@ final class MessageListHub<M> {
     }
   }
 
-  /// Whether [key] of [list] was read from the cache and no page from the
-  /// source has confirmed it since: it may have been deleted or edited on
-  /// the server meanwhile. Pages fetched for such a list are reconciled,
+  /// Whether [key] of [list] was read from the cache, or stayed in memory
+  /// while the list was closed, and no page from the source has confirmed
+  /// it since: it may have been deleted or edited on the server meanwhile. Pages fetched for such a list are reconciled,
   /// and the controller fetches the page around an unverified message
   /// when it comes on screen.
   ///
@@ -443,7 +443,20 @@ final class MessageListHub<M> {
     attachment.release = Timer(releaseDelay, () {
       unawaited(attachment.subscription?.cancel());
       _attachments.remove(list);
+      _unobserved(list);
     });
+  }
+
+  /// Nobody listens to the events of [list] any more, so what stays in
+  /// memory can go stale: it is checked against the source when the list
+  /// is shown again.
+  void _unobserved(ListId list) {
+    final listStore = store.peek(list);
+    if (listStore == null) return;
+    final ranges = [
+      for (final segment in listStore.segments) (segment.first, segment.last),
+    ];
+    if (ranges.isNotEmpty) _unverified[list] = ranges;
   }
 
   /// Declares the key range [owner] (a controller) has on screen, so

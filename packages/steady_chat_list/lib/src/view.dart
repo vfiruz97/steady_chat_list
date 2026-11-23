@@ -141,7 +141,9 @@ class MessageListView<M> extends StatefulWidget {
   final DayHeaderBuilder? floatingDayBuilder;
 
   /// Whether the list reacts to PageUp, PageDown, Home, End and the arrow
-  /// keys on desktop and web (after it was clicked).
+  /// keys on desktop and web (after it was clicked). The list takes the
+  /// keyboard focus on every click, so turn this off inside a
+  /// `SelectionArea` or on a page that manages focus itself.
   final bool keyboardShortcuts;
 
   /// Draws the anchor line and the controller's state over the list

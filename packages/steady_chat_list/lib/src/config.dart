@@ -19,6 +19,7 @@ class MessageListConfig {
     this.cacheExtent = 800,
     this.stickToBottomThreshold = 24,
     this.scrollDownButtonThreshold = 1.0,
+    this.scrollDownButtonDistance,
     this.unreadDividerTopInset = 10,
     this.persistDebounce = const Duration(milliseconds: 800),
     this.readDebounce = const Duration(milliseconds: 300),
@@ -56,6 +57,14 @@ class MessageListConfig {
   /// The scroll-down button shows when the bottom is farther away than this
   /// many viewport heights.
   final double scrollDownButtonThreshold;
+
+  /// The scroll-down button shows when the bottom is farther away than this
+  /// many pixels. When set, it replaces [scrollDownButtonThreshold].
+  ///
+  /// ```dart
+  /// const MessageListConfig(scrollDownButtonDistance: 60)
+  /// ```
+  final double? scrollDownButtonDistance;
 
   /// Distance (px) from the viewport top to the unread divider on open.
   final double unreadDividerTopInset;

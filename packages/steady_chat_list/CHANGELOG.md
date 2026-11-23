@@ -1,3 +1,9 @@
+## 0.1.4
+
+- **Fixed:** a chat that was closed and opened again in the same app run kept showing messages deleted or edited on the server meanwhile. Once the hub stops listening to a closed list (`releaseDelay`), what stays in memory is checked against the server when it comes on screen again, like cached messages.
+- `MessageListConfig.scrollDownButtonDistance`: show the scroll-down button a number of pixels from the end instead of a share of the viewport height.
+- Docs: `MessageListView.keyboardShortcuts` takes the keyboard focus on click; turn it off inside a `SelectionArea`.
+
 ## 0.1.3
 
 - **Fixed:** with a cache, messages deleted or edited on the server while the app was closed stayed on screen until the app called `invalidate()`. They are now checked against the server when they come on screen and corrected without moving the viewport.

@@ -237,6 +237,34 @@ void main() {
       third.dispose();
     });
 
+    test('a closed list is unverified once its events are released', () async {
+      final hub = MessageListHub<Msg>(
+        source: source,
+        adapter: const MsgAdapter(),
+        releaseDelay: const Duration(milliseconds: 20),
+      );
+      hub.attach(chat);
+      await hub.fetch(req(PageDirection.latest)); // 810..1000
+      hub.detach(chat);
+      // Back before the events were released: nothing was missed.
+      hub.attach(chat);
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(hub.isUnverified(chat, k(900)), isFalse);
+
+      hub.detach(chat);
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(hub.isUnverified(chat, k(900)), isTrue);
+
+      // Deleted while nobody listened: the next page takes it out.
+      server.byOrder.remove(900);
+      final store = hub.attach(chat);
+      expect(store.contains('m900'), isTrue);
+      await hub.fetch(req(PageDirection.latest));
+      expect(store.contains('m900'), isFalse);
+      expect(hub.isUnverified(chat, k(990)), isFalse);
+      hub.dispose();
+    });
+
     test('a chat cleared on the server is emptied by the first page', () async {
       final hub = newHub();
       hub.attach(chat);

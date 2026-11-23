@@ -203,6 +203,41 @@ void main() {
       });
     });
 
+    test('a chat closed and opened again drops what was deleted meanwhile', () {
+      run((env) {
+        final first = env.controller()..open();
+        final before = FakeViewport(first);
+        env.settle();
+        before.scrollToTop();
+        env.settle();
+        before.scrollBy(400);
+        env.settle(const Duration(seconds: 2)); // the position is saved
+        final seen = before.visibleOrders;
+        final gone = seen[1];
+        before.dispose();
+        first.dispose();
+        // Long enough for the hub to stop listening to the chat.
+        env.settle(const Duration(minutes: 1));
+        env.server.deleted.add(gone);
+        // The newest message is deleted too.
+        final newest = env.server.newest;
+        env.server.deleted.add(newest);
+
+        final controller = env.controller()..open();
+        final view = FakeViewport(controller);
+        env.settle();
+        final store = env.hub.attach(chat);
+        expect(view.visibleOrders, isNot(contains(gone)));
+        expect(store.keyOf('m$gone'), isNull);
+        expect(view.visibleOrders.first, seen.first, reason: 'did not move');
+
+        controller.jumpToBottom();
+        env.settle();
+        expect(store.keyOf('m$newest'), isNull);
+        expect(view.visibleOrders, isNot(contains(newest)));
+      });
+    });
+
     test('scrolling further into cached history checks that page too', () {
       run(env: cached, (env) {
         final before = restart(env, pages: 3);
