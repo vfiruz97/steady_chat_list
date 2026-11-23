@@ -112,8 +112,10 @@ class ChatBackend implements MessageSource<ChatMessage> {
     );
     return PageResult(
       items: rows,
-      // Set these when you KNOW there is nothing further. If you do not
-      // know, leave them false; returning fewer than `limit` is not enough.
+      // Set these when you KNOW there is nothing further. An `older` page
+      // with fewer than `limit` messages is also read as the start of the
+      // history, so return a full page unless the history ends there. If
+      // your server returns the anchor message too, ask it for one more.
       reachedOldest: rows.isEmpty && request.direction == PageDirection.older,
       reachedNewest: request.direction == PageDirection.latest,
     );

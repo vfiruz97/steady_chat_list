@@ -131,6 +131,10 @@ final class PageResult<M> {
   final List<M> items;
 
   /// Whether the page includes the oldest message of the list.
+  ///
+  /// An `older` page with fewer messages than `PageRequest.limit` is read
+  /// as the start of the history even when this is false: return a full
+  /// page unless the history ends there.
   final bool reachedOldest;
 
   /// Whether the page includes the newest message of the list.

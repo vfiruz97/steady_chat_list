@@ -5,6 +5,7 @@
 - **Fixed:** a chat where reading stopped before its first message now opens at the first unread message with the divider, not at the bottom.
 - `MessageListConfig.scrollDownButtonDistance`: show the scroll-down button a number of pixels from the end instead of a share of the viewport height.
 - Docs: `MessageListView.keyboardShortcuts` takes the keyboard focus on click; turn it off inside a `SelectionArea`.
+- Docs: an `older` page shorter than `limit` is read as the start of the history. The guide said the opposite. A source whose server returns the anchor message too must ask for one more.
 
 ## 0.1.3
 
