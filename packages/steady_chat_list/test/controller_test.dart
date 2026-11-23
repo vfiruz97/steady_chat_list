@@ -38,6 +38,22 @@ void main() {
       });
     });
 
+    test('an open that fetched its page does not refresh it', () {
+      run((env) {
+        final controller = env.controller();
+        FakeViewport(controller, height: 100);
+        controller.open(target: OpenTarget.message(k(5000)));
+        env.settle();
+        expect(controller.phase.value, ListPhase.ready);
+        expect(env.server.requestsOf(PageDirection.around), hasLength(1));
+        expect(
+          env.server.requestsOf(PageDirection.newer),
+          isEmpty,
+          reason: 'the page is seconds old: nothing to catch up with',
+        );
+      });
+    });
+
     test('an empty list opens as empty and shows its first message', () {
       run(
         env: (async) => Env(async, count: 0),

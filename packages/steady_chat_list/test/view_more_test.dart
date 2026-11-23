@@ -366,7 +366,8 @@ void main() {
     await tester.pumpWidget(build());
     await h.settle();
     await h.scrollBy(600);
-    await h.settle(const Duration(milliseconds: 100));
+    // The page this scroll asks for has arrived.
+    await h.settle();
     String overlay() => tester
         .widgetList<Text>(find.byType(Text))
         .map((t) => t.data ?? '')

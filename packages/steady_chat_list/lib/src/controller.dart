@@ -1411,6 +1411,8 @@ class MessageListController<M> extends ChangeNotifier {
 
     var triedUnread = false;
     var fetchedLatest = false;
+    // A page fetched by this open is as fresh as a refresh would make it.
+    var fetchedAround = false;
     for (var step = 0; step < 6; step++) {
       switch (plan) {
         case OpenPlanRestore(:final snapshot, :final resolution):
@@ -1418,7 +1420,7 @@ class MessageListController<M> extends ChangeNotifier {
           if (anchor == null && resolution == OpenResolution.snapshot) {
             // Not in memory (no cache, or evicted): load around the anchor.
             _showLoadingIfBlank();
-            await _fetchQuietly(
+            fetchedAround = await _fetchQuietly(
               generation,
               PageDirection.around,
               snapshot.anchorKey,
@@ -1439,7 +1441,9 @@ class MessageListController<M> extends ChangeNotifier {
             PlaceAnchor(anchor, exact ? snapshot.anchorOffset : 0),
           );
           _opened(resolution);
-          unawaited(_refresh(generation, latest: false));
+          if (!fetchedAround) {
+            unawaited(_refresh(generation, latest: false));
+          }
           return resolution;
 
         case OpenPlanUnread():
@@ -1448,7 +1452,7 @@ class MessageListController<M> extends ChangeNotifier {
           final read = store.readState.lastReadInbox;
           if (divider == null && read != null) {
             _showLoadingIfBlank();
-            await _fetchQuietly(
+            fetchedAround = await _fetchQuietly(
               generation,
               PageDirection.around,
               read,
@@ -1468,7 +1472,9 @@ class MessageListController<M> extends ChangeNotifier {
             PlaceUnread(divider, config.unreadDividerTopInset),
           );
           _opened(OpenResolution.firstUnread);
-          unawaited(_refresh(generation, latest: false));
+          if (!fetchedAround) {
+            unawaited(_refresh(generation, latest: false));
+          }
           return OpenResolution.firstUnread;
 
         case OpenPlanBottom():
@@ -1512,7 +1518,7 @@ class MessageListController<M> extends ChangeNotifier {
           var at = locate();
           if (at == null) {
             _showLoadingIfBlank();
-            await _fetchQuietly(
+            fetchedAround = await _fetchQuietly(
               generation,
               PageDirection.around,
               key,
@@ -1528,7 +1534,9 @@ class MessageListController<M> extends ChangeNotifier {
           _dividerKey = null;
           _show(store, around(at), PlaceAnchor(at, 0));
           _opened(OpenResolution.target);
-          unawaited(_refresh(generation, latest: false));
+          if (!fetchedAround) {
+            unawaited(_refresh(generation, latest: false));
+          }
           return OpenResolution.target;
       }
     }
