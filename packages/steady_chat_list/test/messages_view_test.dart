@@ -105,6 +105,27 @@ void main() {
       await h.dispose();
     });
 
+    testWidgets('sending at the bottom moves the list by one message only',
+        (tester) async {
+      final h = ListHarness(tester);
+      h.controller.open();
+      await h.pump();
+      expect(h.bottomOf(10000), 600);
+      for (final id in ['c1', 'c2']) {
+        h.controller.insertLocal(id: id, build: _local);
+        var previous = h.bottomOf(10000);
+        for (var frame = 0; frame < 40; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          final bottom = h.bottomOf(10000);
+          // A jump that starts a screen above would put it far below.
+          expect(bottom, lessThanOrEqualTo(previous + 0.5), reason: id);
+          previous = bottom;
+        }
+      }
+      expect(h.bottomOf(10000), 500, reason: 'two messages of 50 below it');
+      await h.dispose();
+    });
+
     testWidgets('a failure alone rebuilds just that message', (tester) async {
       final h = ListHarness(tester);
       h.controller.open();

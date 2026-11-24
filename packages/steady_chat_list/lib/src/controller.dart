@@ -977,9 +977,7 @@ class MessageListController<M> extends ChangeNotifier {
         // a scroll aimed there would show blank space and then fall back.
         // The window is placed from its bottom instead, where the end is
         // exact, and the scroll rises to it.
-        final endKnown =
-            _keys.isEmpty || (_viewport?.isBuilt(_keys.last) ?? true);
-        if (!_endsAtNewest || _keys.isEmpty || !endKnown) {
+        if (!_endsAtNewest || _keys.isEmpty || !_endLaidOut()) {
           if (store.liveSegment == null && !store.isKnownEmpty) {
             final loaded = await load(
               PageDirection.latest,
@@ -1578,6 +1576,26 @@ class MessageListController<M> extends ChangeNotifier {
     // unread.
     return segment.reachedOldest && read < segment.first ? divider : null;
   }
+
+  /// Whether the end of the window is laid out, so that the bottom of the
+  /// content is where the scroll position says it is.
+  ///
+  /// Rows added since the last frame (a message being sent) are not laid
+  /// out yet; the row they follow answers for them.
+  bool _endLaidOut() {
+    final view = _viewport;
+    if (view == null) return true;
+    final from = _keys.length - 1;
+    final to = from - _unlaidTail < 0 ? 0 : from - _unlaidTail;
+    for (var i = from; i >= to; i--) {
+      if (view.isBuilt(_keys[i])) return true;
+    }
+    return false;
+  }
+
+  /// How many rows at the end of the window may be waiting for their first
+  /// layout: several messages can be sent in one frame.
+  static const int _unlaidTail = 8;
 
   void _opened(OpenResolution resolution) {
     _typing.value = _store?.typingUserIds ?? const {};

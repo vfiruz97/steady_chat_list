@@ -2,6 +2,10 @@
 
 All packages in this repository share one version.
 
+## 0.1.8
+
+- **Fixed (0.1.7 regression):** sending a message at the bottom of the list replayed the jump-to-bottom animation from a screen above. The list now moves up by the new message only.
+
 ## 0.1.7
 
 - **Fixed:** a jump to the bottom could scroll past the last message, show blank space and fall back, when rows below were much taller or shorter than the list had estimated (an image, for example). It now always rises to the last message.
